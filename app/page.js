@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import WalletModal from "@/components/WalletModal";
+
 
 export default function Home() {
 
   const [telegramId, setTelegramId] = useState("");
+
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
+
 
   useEffect(() => {
 
@@ -22,9 +27,9 @@ export default function Home() {
   return (
     <main
       style={{
-        padding: "40px",
-        textAlign: "center",
-        fontFamily: "Arial"
+        padding:"40px",
+        textAlign:"center",
+        fontFamily:"Arial"
       }}
     >
 
@@ -44,15 +49,31 @@ export default function Home() {
 
 
       <button
+
+        onClick={() => setWalletModalOpen(true)}
+
         style={{
           padding:"15px 30px",
           fontSize:"18px",
           borderRadius:"10px",
           cursor:"pointer"
         }}
+
       >
+
         连接钱包
+
       </button>
+
+
+
+      <WalletModal
+
+        open={walletModalOpen}
+
+        onClose={() => setWalletModalOpen(false)}
+
+      />
 
 
     </main>
