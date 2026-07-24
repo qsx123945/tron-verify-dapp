@@ -1,108 +1,112 @@
 "use client";
 
-export default function WalletModal({ open, onClose }) {
 
-  if (!open) return null;
-
-  const wallets = [
-    {
-      name: "TronLink",
-      icon: "🔴"
-    },
-    {
-      name: "TokenPocket",
-      icon: "🟦"
-    },
-    {
-      name: "Trust Wallet",
-      icon: "🟣"
-    },
-    {
-      name: "OKX Wallet",
-      icon: "⚫"
-    },
-    {
-      name: "SafePal",
-      icon: "🔵"
-    },
-    {
-      name: "imToken",
-      icon: "🟠"
-    }
-  ];
+export default function WalletModal({close}){
 
 
-  return (
+return (
 
-    <div
-      style={{
-        position:"fixed",
-        inset:0,
-        background:"rgba(0,0,0,0.5)",
-        display:"flex",
-        justifyContent:"center",
-        alignItems:"center"
-      }}
-    >
+<div
 
-      <div
-        style={{
-          background:"#fff",
-          padding:"30px",
-          borderRadius:"15px",
-          width:"320px"
-        }}
-      >
+style={{
 
-        <h2>
-          选择钱包
-        </h2>
+position:"fixed",
+top:0,
+left:0,
+right:0,
+bottom:0,
+background:"rgba(0,0,0,0.5)",
+display:"flex",
+justifyContent:"center",
+alignItems:"center"
+
+}}
+
+>
 
 
-        {
-          wallets.map((wallet)=>(
+<div
 
-            <button
+style={{
 
-              key={wallet.name}
+background:"#fff",
+padding:"30px",
+borderRadius:"15px",
+width:"320px"
 
-              style={{
-                width:"100%",
-                padding:"12px",
-                marginTop:"10px",
-                fontSize:"16px"
-              }}
+}}
 
-            >
-
-              {wallet.icon} {wallet.name}
-
-            </button>
-
-          ))
-        }
+>
 
 
-        <button
-
-          onClick={onClose}
-
-          style={{
-            marginTop:"20px",
-            width:"100%"
-          }}
-
-        >
-          取消
-
-        </button>
+<h2>
+选择钱包
+</h2>
 
 
-      </div>
+
+<button>
+🟦 TronLink
+</button>
 
 
-    </div>
+<br/><br/>
 
-  )
+
+<button>
+🟦 TokenPocket
+</button>
+
+
+<br/><br/>
+
+
+<button>
+🟦 Trust Wallet
+</button>
+
+
+<br/><br/>
+
+
+<button>
+🟦 imToken
+</button>
+
+
+<br/><br/>
+
+
+<button>
+🟦 OKX Wallet
+</button>
+
+
+<br/><br/>
+
+
+<button>
+🟦 SafePal
+</button>
+
+
+
+<br/><br/>
+
+
+<button
+onClick={close}
+>
+关闭
+</button>
+
+
+</div>
+
+
+</div>
+
+
+)
 
 }
