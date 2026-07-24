@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import WalletModal from "./components/WalletModal";
+import WalletModal from "./components/WalletModal.js";
 
 
 export default function Home() {
