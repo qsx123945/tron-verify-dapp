@@ -1,26 +1,29 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import WalletModal from "../components/WalletModal";
+import WalletModal from "./components/WalletModal";
 
 
 export default function Home() {
 
-  const [telegramId, setTelegramId] = useState("");
-  const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const [telegramId,setTelegramId] = useState("");
+
+  const [walletOpen,setWalletOpen] = useState(false);
 
 
-  useEffect(() => {
+  useEffect(()=>{
 
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(
+      window.location.search
+    );
 
-    const id = params.get("telegram_id");
+    const id=params.get("telegram_id");
 
-    if (id) {
+    if(id){
       setTelegramId(id);
     }
 
-  }, []);
+  },[]);
 
 
 
@@ -28,7 +31,6 @@ export default function Home() {
 
     <main
       style={{
-        minHeight:"100vh",
         padding:"50px",
         textAlign:"center",
         fontFamily:"Arial"
@@ -54,14 +56,13 @@ export default function Home() {
 
       <button
 
-        onClick={() => setWalletModalOpen(true)}
+        onClick={()=>setWalletOpen(true)}
 
         style={{
-          padding:"15px 35px",
+          padding:"15px 40px",
           fontSize:"18px",
-          borderRadius:"12px",
-          cursor:"pointer",
-          marginTop:"30px"
+          borderRadius:"10px",
+          cursor:"pointer"
         }}
 
       >
@@ -73,17 +74,13 @@ export default function Home() {
 
 
       {
-        walletModalOpen && (
+        walletOpen &&
 
-          <WalletModal
+        <WalletModal
+          close={()=>setWalletOpen(false)}
+        />
 
-            onClose={() => setWalletModalOpen(false)}
-
-          />
-
-        )
       }
-
 
 
     </main>
