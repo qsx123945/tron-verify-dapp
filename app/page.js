@@ -1,13 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import WalletModal from "@/components/WalletModal";
+import WalletModal from "../components/WalletModal";
 
 
 export default function Home() {
 
   const [telegramId, setTelegramId] = useState("");
-
   const [walletModalOpen, setWalletModalOpen] = useState(false);
 
 
@@ -24,14 +23,18 @@ export default function Home() {
   }, []);
 
 
+
   return (
+
     <main
       style={{
-        padding:"40px",
+        minHeight:"100vh",
+        padding:"50px",
         textAlign:"center",
         fontFamily:"Arial"
       }}
     >
+
 
       <h1>
         🔐 TRON 钱包验证
@@ -48,15 +51,17 @@ export default function Home() {
       </h2>
 
 
+
       <button
 
         onClick={() => setWalletModalOpen(true)}
 
         style={{
-          padding:"15px 30px",
+          padding:"15px 35px",
           fontSize:"18px",
-          borderRadius:"10px",
-          cursor:"pointer"
+          borderRadius:"12px",
+          cursor:"pointer",
+          marginTop:"30px"
         }}
 
       >
@@ -67,15 +72,22 @@ export default function Home() {
 
 
 
-      <WalletModal
+      {
+        walletModalOpen && (
 
-        open={walletModalOpen}
+          <WalletModal
 
-        onClose={() => setWalletModalOpen(false)}
+            onClose={() => setWalletModalOpen(false)}
 
-      />
+          />
+
+        )
+      }
+
 
 
     </main>
+
   );
+
 }
