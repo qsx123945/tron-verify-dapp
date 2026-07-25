@@ -4,32 +4,32 @@ const WALLETS = [
   {
     id: "tronlink",
     name: "TronLink",
-    icon: "🔷",
+    logo: "/wallets/tronlink.png",
   },
   {
     id: "tokenpocket",
     name: "TokenPocket",
-    icon: "TP",
+    logo: "/wallets/tokenpocket.png",
   },
   {
-    id: "trust",
+    id: "trustwallet",
     name: "Trust Wallet",
-    icon: "🛡️",
+    logo: "/wallets/trustwallet.png",
   },
   {
     id: "okx",
     name: "OKX Wallet",
-    icon: "OKX",
+    logo: "/wallets/okx.png",
   },
   {
     id: "safepal",
     name: "SafePal",
-    icon: "S",
+    logo: "/wallets/safepal.png",
   },
   {
     id: "imtoken",
     name: "imToken",
-    icon: "im",
+    logo: "/wallets/imtoken.png",
   },
 ];
 
@@ -51,9 +51,11 @@ export default function WalletModal({
         style={styles.modal}
         onClick={(event) => event.stopPropagation()}
       >
-        <div style={styles.top}>
+        <div style={styles.header}>
           <div>
-            <h2 style={styles.title}>选择付款钱包</h2>
+            <h2 style={styles.title}>
+              选择付款钱包
+            </h2>
 
             <p style={styles.description}>
               请选择您正在使用的钱包
@@ -63,7 +65,7 @@ export default function WalletModal({
           <button
             type="button"
             aria-label="关闭"
-            style={styles.close}
+            style={styles.closeButton}
             onClick={onClose}
           >
             ×
@@ -75,21 +77,25 @@ export default function WalletModal({
             <button
               type="button"
               key={wallet.id}
-              style={styles.wallet}
+              style={styles.walletButton}
               onClick={() => onSelect(wallet.name)}
             >
-              <span style={styles.icon}>
-                {wallet.icon}
+              <span style={styles.logoBox}>
+                <img
+                  src={wallet.logo}
+                  alt={`${wallet.name} 图标`}
+                  style={styles.logoImage}
+                />
               </span>
 
-              <span style={styles.name}>
+              <span style={styles.walletName}>
                 {wallet.name}
               </span>
             </button>
           ))}
         </div>
 
-        <p style={styles.safety}>
+        <p style={styles.safetyText}>
           钱包只用于连接账户和确认您主动发起的交易。
         </p>
       </section>
@@ -110,17 +116,17 @@ const styles = {
   },
 
   modal: {
-    width: "min(100%, 500px)",
-    padding: "26px",
+    width: "min(100%, 760px)",
+    padding: "34px",
     border: "1px solid rgba(255,255,255,0.12)",
-    borderRadius: "26px",
+    borderRadius: "28px",
     background:
       "linear-gradient(145deg, #171d38, #0d1124)",
     color: "#ffffff",
     boxShadow: "0 25px 80px rgba(0,0,0,0.55)",
   },
 
-  top: {
+  header: {
     display: "flex",
     alignItems: "flex-start",
     justifyContent: "space-between",
@@ -129,71 +135,76 @@ const styles = {
 
   title: {
     margin: 0,
-    fontSize: "25px",
+    fontSize: "30px",
   },
 
   description: {
-    margin: "8px 0 0",
+    margin: "9px 0 0",
     color: "#8d97aa",
-    fontSize: "14px",
+    fontSize: "16px",
   },
 
-  close: {
-    width: "38px",
-    height: "38px",
-    border: "1px solid rgba(255,255,255,0.1)",
-    borderRadius: "12px",
+  closeButton: {
+    width: "48px",
+    height: "48px",
+    border: "1px solid rgba(255,255,255,0.12)",
+    borderRadius: "15px",
     background: "rgba(255,255,255,0.05)",
     color: "#ffffff",
     cursor: "pointer",
-    fontSize: "24px",
+    fontSize: "29px",
+    lineHeight: 1,
   },
 
   walletGrid: {
     display: "grid",
     gridTemplateColumns:
-      "repeat(auto-fit, minmax(125px, 1fr))",
-    gap: "13px",
-    marginTop: "24px",
+      "repeat(auto-fit, minmax(170px, 1fr))",
+    gap: "17px",
+    marginTop: "30px",
   },
 
-  wallet: {
+  walletButton: {
     display: "flex",
-    minHeight: "112px",
-    padding: "14px 8px",
+    minHeight: "150px",
+    padding: "20px 12px",
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "column",
-    gap: "10px",
-    border: "1px solid rgba(255,255,255,0.1)",
-    borderRadius: "18px",
+    gap: "14px",
+    border: "1px solid rgba(255,255,255,0.13)",
+    borderRadius: "22px",
     background: "rgba(255,255,255,0.035)",
     color: "#ffffff",
     cursor: "pointer",
   },
 
-  icon: {
+  logoBox: {
     display: "grid",
-    width: "46px",
-    height: "46px",
+    width: "68px",
+    height: "68px",
     placeItems: "center",
-    borderRadius: "14px",
-    background:
-      "linear-gradient(135deg, #22d3ee, #6366f1)",
-    color: "#ffffff",
-    fontSize: "15px",
-    fontWeight: "800",
+    overflow: "hidden",
+    borderRadius: "18px",
+    background: "#ffffff",
+    boxShadow: "0 10px 25px rgba(0,0,0,0.22)",
   },
 
-  name: {
-    fontSize: "14px",
-    fontWeight: "650",
+  logoImage: {
+    width: "100%",
+    height: "100%",
+    objectFit: "cover",
   },
 
-  safety: {
-    margin: "20px 0 0",
+  walletName: {
+    fontSize: "18px",
+    fontWeight: "700",
+  },
+
+  safetyText: {
+    margin: "28px 0 0",
     color: "#707b91",
-    fontSize: "12px",
+    fontSize: "14px",
     lineHeight: "1.6",
     textAlign: "center",
   },
