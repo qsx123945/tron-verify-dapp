@@ -191,8 +191,7 @@ export default function HomePage() {
 
         showMessage(
           `${walletName || "钱包"} 连接成功。\n\n` +
-            `公开地址：\n${address}\n\n` +
-            "本次连接没有转账、签名或代币授权。"
+            `公开地址：\n${address}
         );
       },
       [showMessage]
