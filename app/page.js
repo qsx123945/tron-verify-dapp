@@ -9,7 +9,6 @@ import {
 
 import WalletModal from "../components/WalletModal";
 
-
 const ENERGY_PLANS = [
   {
     id: "energy-65000",
@@ -27,72 +26,34 @@ const ENERGY_PLANS = [
   },
 ];
 
-
-/*
- * TRON Base58 地址基础格式：
- * 以 T 开头，总长度通常为 34 位。
- *
- * 这里只做前端基础格式检查。
- * 后续付款前还可以再通过 TronWeb.isAddress()
- * 进行一次严格校验。
- */
 function isValidTronAddress(address) {
   return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(
     String(address || "").trim()
   );
 }
 
-
-function shortenAddress(address) {
-  if (!address || address.length < 14) {
-    return address;
-  }
-
-  return `${address.slice(0, 8)}...${address.slice(-7)}`;
-}
-
-
 export default function HomePage() {
-  const [
-    selectedPlanId,
-    setSelectedPlanId,
-  ] = useState("");
+  const [selectedPlanId, setSelectedPlanId] =
+    useState("");
 
-  const [
-    receiverAddress,
-    setReceiverAddress,
-  ] = useState("");
+  const [receiverAddress, setReceiverAddress] =
+    useState("");
 
-  const [
-    walletOpen,
-    setWalletOpen,
-  ] = useState(false);
+  const [walletOpen, setWalletOpen] =
+    useState(false);
 
-  const [
-    connectedWallet,
-    setConnectedWallet,
-  ] = useState("");
+  const [connectedWallet, setConnectedWallet] =
+    useState("");
 
-  const [
-    connectedAddress,
-    setConnectedAddress,
-  ] = useState("");
+  const [connectedAddress, setConnectedAddress] =
+    useState("");
 
-  const [
-    message,
-    setMessage,
-  ] = useState("");
+  const [message, setMessage] =
+    useState("");
 
-  const [
-    telegramId,
-    setTelegramId,
-  ] = useState("");
+  const [telegramId, setTelegramId] =
+    useState("");
 
-
-  /*
-   * 从 Telegram 按钮链接中读取：
-   * ?telegram_id=123456789
-   */
   useEffect(() => {
     const searchParams =
       new URLSearchParams(
@@ -104,44 +65,26 @@ export default function HomePage() {
     );
   }, []);
 
-
   const selectedPlan = useMemo(() => {
     return ENERGY_PLANS.find(
       (plan) => plan.id === selectedPlanId
     );
   }, [selectedPlanId]);
 
+  const showMessage = useCallback((text) => {
+    setMessage(String(text || ""));
+  }, []);
 
-  const showMessage = useCallback(
-    (text) => {
-      setMessage(String(text || ""));
-    },
-    []
-  );
-
-
-  const handleCloseMessage = useCallback(
-    () => {
+  const handleCloseMessage =
+    useCallback(() => {
       setMessage("");
-    },
-    []
-  );
+    }, []);
 
-
-  const handleCloseWallet = useCallback(
-    () => {
+  const handleCloseWallet =
+    useCallback(() => {
       setWalletOpen(false);
-    },
-    []
-  );
+    }, []);
 
-
-  /*
-   * 点击“确认租赁”时：
-   * 只校验套餐和接收地址，然后打开钱包选择弹窗。
-   *
-   * 不会在这里创建或签署交易。
-   */
   function handleConfirmRental() {
     if (!selectedPlan) {
       showMessage("请选择能量套餐。");
@@ -167,11 +110,6 @@ export default function HomePage() {
     setWalletOpen(true);
   }
 
-
-  /*
-   * WalletModal 连接成功后会调用这里。
-   * 保存钱包名称和公开地址。
-   */
   const handleWalletConnected =
     useCallback(
       ({ walletName, address }) => {
@@ -182,25 +120,23 @@ export default function HomePage() {
           return;
         }
 
+        const displayWalletName =
+          walletName || "钱包";
+
         setConnectedWallet(
-          walletName || "TRON Wallet"
+          displayWalletName
         );
 
         setConnectedAddress(address);
         setWalletOpen(false);
 
         showMessage(
-          `${walletName || "钱包"} 连接成功。\n\n` +
-            `公开地址：\n${address}
+          `${displayWalletName} 连接成功。\n\n公开地址：\n${address}`
         );
       },
       [showMessage]
     );
 
-
-  /*
-   * WalletModal 连接失败时会调用这里。
-   */
   const handleWalletConnectionError =
     useCallback(
       (errorMessage) => {
@@ -213,7 +149,6 @@ export default function HomePage() {
       },
       [showMessage]
     );
-
 
   function handleChangeWallet() {
     if (!selectedPlan) {
@@ -234,7 +169,6 @@ export default function HomePage() {
 
     setWalletOpen(true);
   }
-
 
   return (
     <main className="page">
@@ -261,7 +195,6 @@ export default function HomePage() {
         </div>
       </header>
 
-
       <section className="hero">
         <div className="heroBadge">
           ⚡ 快速 · 安全 · 透明
@@ -277,7 +210,6 @@ export default function HomePage() {
         </p>
       </section>
 
-
       <section className="rentalCard">
         <div className="sectionHeading">
           <span className="stepNumber">
@@ -286,12 +218,9 @@ export default function HomePage() {
 
           <div>
             <h2>选择能量套餐</h2>
-            <p>
-              根据交易需要选择能量数量
-            </p>
+            <p>根据交易需要选择能量数量</p>
           </div>
         </div>
-
 
         <div className="planGrid">
           {ENERGY_PLANS.map((plan) => {
@@ -353,7 +282,6 @@ export default function HomePage() {
           })}
         </div>
 
-
         <div className="sectionHeading addressHeading">
           <span className="stepNumber">
             2
@@ -361,12 +289,9 @@ export default function HomePage() {
 
           <div>
             <h2>输入接收地址</h2>
-            <p>
-              能量将发送到这个 TRON 地址
-            </p>
+            <p>能量将发送到这个 TRON 地址</p>
           </div>
         </div>
-
 
         <div className="inputWrapper">
           <span className="inputIcon">
@@ -389,7 +314,6 @@ export default function HomePage() {
           />
         </div>
 
-
         {receiverAddress &&
           !isValidTronAddress(
             receiverAddress
@@ -399,7 +323,6 @@ export default function HomePage() {
             </div>
           )}
 
-
         {selectedPlan && (
           <div className="orderSummary">
             <div className="summaryTitle">
@@ -408,13 +331,16 @@ export default function HomePage() {
 
             <div className="summaryRow">
               <span>能量数量</span>
+
               <strong>
-                {selectedPlan.energy.toLocaleString()} Energy
+                {selectedPlan.energy.toLocaleString()}{" "}
+                Energy
               </strong>
             </div>
 
             <div className="summaryRow">
               <span>租赁价格</span>
+
               <strong>
                 {selectedPlan.price} TRX
               </strong>
@@ -422,13 +348,13 @@ export default function HomePage() {
 
             <div className="summaryRow">
               <span>有效时间</span>
+
               <strong>
                 {selectedPlan.duration}
               </strong>
             </div>
           </div>
         )}
-
 
         {connectedAddress && (
           <div className="connectedBox">
@@ -453,8 +379,7 @@ export default function HomePage() {
             </div>
 
             <div className="connectedNote">
-              当前显示的是钱包公开地址，
-              此步骤没有签署任何交易。
+              当前显示的是钱包公开地址。
             </div>
 
             <button
@@ -467,7 +392,6 @@ export default function HomePage() {
           </div>
         )}
 
-
         <button
           type="button"
           className="confirmButton"
@@ -478,17 +402,13 @@ export default function HomePage() {
             : "确认租赁并连接钱包"}
         </button>
 
-
         <div className="securityNotice">
           <span>🛡️</span>
 
           <p>
-            连接钱包只会请求读取公开账户地址。
-            当前页面不会自动转账、不会调用合约，
-            也不会产生 USDT 或其他代币授权。
+            请在钱包中确认当前连接的网站域名。
           </p>
         </div>
-
 
         {telegramId && (
           <div className="telegramInfo">
@@ -498,7 +418,6 @@ export default function HomePage() {
         )}
       </section>
 
-
       <footer className="footer">
         <div>KK TRON Energy</div>
 
@@ -507,7 +426,6 @@ export default function HomePage() {
           仔细检查金额、接收地址和合约调用内容。
         </p>
       </footer>
-
 
       <WalletModal
         open={walletOpen}
@@ -519,7 +437,6 @@ export default function HomePage() {
           handleWalletConnectionError
         }
       />
-
 
       {message && (
         <div
@@ -550,7 +467,6 @@ export default function HomePage() {
           </div>
         </div>
       )}
-
 
       <style jsx>{`
         * {
@@ -595,7 +511,8 @@ export default function HomePage() {
           justify-content: space-between;
           gap: 20px;
           border-bottom:
-            1px solid rgba(255, 255, 255, 0.07);
+            1px solid
+            rgba(255, 255, 255, 0.07);
         }
 
         .brand {
@@ -641,7 +558,8 @@ export default function HomePage() {
           align-items: center;
           gap: 8px;
           border:
-            1px solid rgba(34, 211, 238, 0.2);
+            1px solid
+            rgba(34, 211, 238, 0.2);
           border-radius: 999px;
           color: #94a3b8;
           background:
@@ -669,7 +587,8 @@ export default function HomePage() {
           display: inline-flex;
           padding: 8px 14px;
           border:
-            1px solid rgba(34, 211, 238, 0.18);
+            1px solid
+            rgba(34, 211, 238, 0.18);
           border-radius: 999px;
           color: #67e8f9;
           background:
@@ -707,7 +626,8 @@ export default function HomePage() {
           margin: 0 auto;
           padding: 34px;
           border:
-            1px solid rgba(255, 255, 255, 0.09);
+            1px solid
+            rgba(255, 255, 255, 0.09);
           border-radius: 30px;
           background:
             linear-gradient(
@@ -871,7 +791,8 @@ export default function HomePage() {
           gap: 13px;
           padding: 0 17px;
           border:
-            1px solid rgba(255, 255, 255, 0.1);
+            1px solid
+            rgba(255, 255, 255, 0.1);
           border-radius: 17px;
           background:
             rgba(3, 7, 18, 0.48);
@@ -921,7 +842,8 @@ export default function HomePage() {
           margin-top: 22px;
           padding: 19px;
           border:
-            1px solid rgba(255, 255, 255, 0.08);
+            1px solid
+            rgba(255, 255, 255, 0.08);
           border-radius: 18px;
           background:
             rgba(255, 255, 255, 0.025);
@@ -1143,8 +1065,7 @@ export default function HomePage() {
 
         @media (max-width: 680px) {
           .page {
-            padding:
-              0 14px 35px;
+            padding: 0 14px 35px;
           }
 
           .header {
@@ -1161,8 +1082,7 @@ export default function HomePage() {
           }
 
           .hero {
-            margin:
-              48px auto 27px;
+            margin: 48px auto 27px;
           }
 
           .heroTitle {
