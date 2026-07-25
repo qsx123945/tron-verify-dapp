@@ -91,26 +91,61 @@ export default function WalletModal({
   ] = useState("");
 
   const connectingRef = useRef(false);
-  const reportedConnectionRef = useRef("");
+
+  const reportedConnectionRef =
+    useRef("");
+
+
+  /*
+   * 弹窗打开时禁止底层页面滚动。
+   * 弹窗内部仍然可以上下滑动。
+   */
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const previousOverflow =
+      document.body.style.overflow;
+
+    document.body.style.overflow =
+      "hidden";
+
+    return () => {
+      document.body.style.overflow =
+        previousOverflow;
+    };
+  }, [open]);
 
 
   function findAdapter(walletItem) {
-    return wallets.find((walletState) => {
-      const adapterName = normalizeWalletName(
-        walletState?.adapter?.name
-      );
+    return wallets.find(
+      (walletState) => {
+        const adapterName =
+          normalizeWalletName(
+            walletState?.adapter?.name
+          );
 
-      return walletItem.keywords.some((keyword) =>
-        adapterName.includes(
-          normalizeWalletName(keyword)
-        )
-      );
-    });
+        return walletItem.keywords.some(
+          (keyword) =>
+            adapterName.includes(
+              normalizeWalletName(
+                keyword
+              )
+            )
+        );
+      }
+    );
   }
 
 
-  function handleWalletClick(walletItem) {
-    if (connecting || pendingAdapterName) {
+  function handleWalletClick(
+    walletItem
+  ) {
+    if (
+      connecting ||
+      pendingAdapterName
+    ) {
       return;
     }
 
@@ -122,9 +157,12 @@ export default function WalletModal({
       return;
     }
 
-    const targetWallet = findAdapter(walletItem);
+    const targetWallet =
+      findAdapter(walletItem);
 
-    if (!targetWallet?.adapter?.name) {
+    if (
+      !targetWallet?.adapter?.name
+    ) {
       onError?.(
         `没有找到 ${walletItem.name} 的钱包适配器，请检查 WalletProvider 配置。`
       );
@@ -132,23 +170,23 @@ export default function WalletModal({
       return;
     }
 
-    setSelectedDisplayName(walletItem.name);
+    setSelectedDisplayName(
+      walletItem.name
+    );
 
     setPendingAdapterName(
       targetWallet.adapter.name
     );
 
-    /*
-     * 这里只选择对应的钱包 Adapter。
-     * 选择完成后，由下面的 useEffect 调用 connect。
-     */
-    select(targetWallet.adapter.name);
+    select(
+      targetWallet.adapter.name
+    );
   }
 
 
   /*
-   * 等待 select 更新完成后再调用 connect。
-   * 避免 select 和 connect 同时执行导致连接到旧钱包。
+   * 等待 select 完成后，
+   * 再连接当前选中的钱包。
    */
   useEffect(() => {
     if (!pendingAdapterName) {
@@ -184,7 +222,8 @@ export default function WalletModal({
             `${selectedDisplayName} 连接失败，请重新尝试。`
         );
       } finally {
-        connectingRef.current = false;
+        connectingRef.current =
+          false;
       }
     }
 
@@ -199,8 +238,8 @@ export default function WalletModal({
 
 
   /*
-   * 连接成功或账户发生变化时，
-   * 把钱包名称和公开地址返回给 page.js。
+   * 连接成功后把公开地址
+   * 返回给 app/page.js。
    */
   useEffect(() => {
     if (!connected || !address) {
@@ -208,7 +247,9 @@ export default function WalletModal({
     }
 
     const reportKey =
-      `${wallet?.adapter?.name || ""}:${address}`;
+      `${
+        wallet?.adapter?.name || ""
+      }:${address}`;
 
     if (
       reportedConnectionRef.current ===
@@ -258,7 +299,7 @@ export default function WalletModal({
       style={styles.overlay}
       onClick={() => {
         if (!isBusy) {
-          onClose();
+          onClose?.();
         }
       }}
     >
@@ -269,7 +310,7 @@ export default function WalletModal({
         }
       >
         <div style={styles.header}>
-          <div>
+          <div style={styles.headerText}>
             <h2 style={styles.title}>
               选择付款钱包
             </h2>
@@ -282,62 +323,88 @@ export default function WalletModal({
           <button
             type="button"
             aria-label="关闭"
-            style={styles.closeButton}
+            style={{
+              ...styles.closeButton,
+              opacity: isBusy ? 0.55 : 1,
+            }}
             disabled={isBusy}
-            onClick={onClose}
+            onClick={() => onClose?.()}
           >
             ×
           </button>
         </div>
 
+
         <div style={styles.walletGrid}>
           {WALLET_ITEMS.map(
-            (walletItem) => (
-              <button
-                type="button"
-                key={walletItem.id}
-                style={{
-                  ...styles.walletButton,
-                  opacity:
-                    isBusy &&
-                    selectedDisplayName !==
-                      walletItem.name
-                      ? 0.5
-                      : 1,
-                }}
-                disabled={isBusy}
-                onClick={() =>
-                  handleWalletClick(
-                    walletItem
-                  )
-                }
-              >
-                <span style={styles.logoBox}>
-                  <img
-                    src={walletItem.logo}
-                    alt={`${walletItem.name} 图标`}
-                    style={styles.logoImage}
-                  />
-                </span>
+            (walletItem) => {
+              const isCurrent =
+                selectedDisplayName ===
+                walletItem.name;
 
-                <span style={styles.walletName}>
-                  {walletItem.name}
-                </span>
+              return (
+                <button
+                  type="button"
+                  key={walletItem.id}
+                  style={{
+                    ...styles.walletButton,
 
-                {!walletItem.enabled && (
+                    opacity:
+                      isBusy &&
+                      !isCurrent
+                        ? 0.45
+                        : 1,
+
+                    borderColor:
+                      isCurrent
+                        ? "rgba(103,232,249,0.75)"
+                        : "rgba(255,255,255,0.13)",
+                  }}
+                  disabled={isBusy}
+                  onClick={() =>
+                    handleWalletClick(
+                      walletItem
+                    )
+                  }
+                >
                   <span
-                    style={styles.pendingLabel}
+                    style={styles.logoBox}
                   >
-                    WalletConnect
+                    <img
+                      src={walletItem.logo}
+                      alt={`${walletItem.name} 图标`}
+                      style={
+                        styles.logoImage
+                      }
+                    />
                   </span>
-                )}
-              </button>
-            )
+
+                  <span
+                    style={styles.walletName}
+                  >
+                    {walletItem.name}
+                  </span>
+
+                  {!walletItem.enabled && (
+                    <span
+                      style={
+                        styles.pendingLabel
+                      }
+                    >
+                      WalletConnect
+                    </span>
+                  )}
+                </button>
+              );
+            }
           )}
         </div>
 
+
         {isBusy && (
-          <div style={styles.connectingBox}>
+          <div
+            style={styles.connectingBox}
+          >
             正在连接
             {selectedDisplayName
               ? ` ${selectedDisplayName}`
@@ -346,8 +413,9 @@ export default function WalletModal({
           </div>
         )}
 
+
         <p style={styles.safetyText}>
-          此步骤不会转账、不会签署交易，也不会产生代币授权。
+          请确认钱包中显示的网站域名与当前页面一致。
         </p>
       </section>
     </div>
@@ -360,135 +428,270 @@ const styles = {
     position: "fixed",
     zIndex: 1000,
     inset: 0,
+
     display: "grid",
-    padding: "20px",
-    placeItems: "center",
-    background: "rgba(3, 6, 18, 0.76)",
+    alignItems: "start",
+    justifyItems: "center",
+
+    padding: "12px",
+
+    overflowY: "auto",
+    overflowX: "hidden",
+
+    background:
+      "rgba(3, 6, 18, 0.76)",
+
     backdropFilter: "blur(10px)",
+    WebkitBackdropFilter:
+      "blur(10px)",
+
+    WebkitOverflowScrolling:
+      "touch",
+
+    overscrollBehavior:
+      "contain",
+
+    touchAction: "pan-y",
   },
+
 
   modal: {
     width: "min(100%, 760px)",
-    padding: "34px",
+
+    maxHeight:
+      "calc(100dvh - 24px)",
+
+    margin: "12px 0",
+
+    padding:
+      "28px 20px 24px",
+
     boxSizing: "border-box",
+
+    overflowY: "auto",
+    overflowX: "hidden",
+
+    WebkitOverflowScrolling:
+      "touch",
+
+    overscrollBehavior:
+      "contain",
+
+    touchAction: "pan-y",
+
     border:
       "1px solid rgba(255,255,255,0.12)",
-    borderRadius: "28px",
+
+    borderRadius: "24px",
+
     background:
       "linear-gradient(145deg, #171d38, #0d1124)",
+
     color: "#ffffff",
+
     boxShadow:
       "0 25px 80px rgba(0,0,0,0.55)",
   },
 
+
   header: {
     display: "flex",
     alignItems: "flex-start",
-    justifyContent: "space-between",
-    gap: "16px",
+    justifyContent:
+      "space-between",
+    gap: "14px",
   },
+
+
+  headerText: {
+    minWidth: 0,
+  },
+
 
   title: {
     margin: 0,
-    fontSize: "30px",
+
+    fontSize:
+      "clamp(25px, 7vw, 30px)",
+
+    lineHeight: 1.25,
   },
+
 
   description: {
     margin: "9px 0 0",
+
     color: "#8d97aa",
-    fontSize: "16px",
+
+    fontSize:
+      "clamp(13px, 4vw, 16px)",
+
+    lineHeight: 1.5,
   },
+
 
   closeButton: {
     width: "48px",
     height: "48px",
+
     flexShrink: 0,
+
     border:
       "1px solid rgba(255,255,255,0.12)",
+
     borderRadius: "15px",
+
     background:
       "rgba(255,255,255,0.05)",
+
     color: "#ffffff",
+
     cursor: "pointer",
+
     fontSize: "29px",
     lineHeight: 1,
   },
 
+
   walletGrid: {
     display: "grid",
+
     gridTemplateColumns:
-      "repeat(auto-fit, minmax(170px, 1fr))",
-    gap: "17px",
-    marginTop: "30px",
+      "repeat(auto-fit, minmax(clamp(125px, 34vw, 170px), 1fr))",
+
+    gap: "12px",
+
+    marginTop: "24px",
   },
+
 
   walletButton: {
     display: "flex",
-    minHeight: "150px",
-    padding: "20px 12px",
+
+    minWidth: 0,
+    minHeight: "128px",
+
+    padding: "16px 8px",
+
     alignItems: "center",
     justifyContent: "center",
     flexDirection: "column",
-    gap: "12px",
+
+    gap: "10px",
+
     border:
       "1px solid rgba(255,255,255,0.13)",
-    borderRadius: "22px",
+
+    borderRadius: "19px",
+
     background:
       "rgba(255,255,255,0.035)",
+
     color: "#ffffff",
+
     cursor: "pointer",
+
+    transition:
+      "opacity 0.2s, border-color 0.2s, background 0.2s",
   },
+
 
   logoBox: {
     display: "grid",
-    width: "68px",
-    height: "68px",
+
+    width: "58px",
+    height: "58px",
+
+    flexShrink: 0,
+
     placeItems: "center",
+
     overflow: "hidden",
-    borderRadius: "18px",
+
+    borderRadius: "16px",
+
     background: "#ffffff",
+
     boxShadow:
       "0 10px 25px rgba(0,0,0,0.22)",
   },
 
+
   logoImage: {
+    display: "block",
+
     width: "100%",
     height: "100%",
+
     objectFit: "cover",
   },
 
+
   walletName: {
-    fontSize: "18px",
+    maxWidth: "100%",
+
+    overflowWrap: "anywhere",
+
+    fontSize: "16px",
     fontWeight: "700",
-  },
 
-  pendingLabel: {
-    padding: "4px 8px",
-    borderRadius: "20px",
-    background:
-      "rgba(148,163,184,0.12)",
-    color: "#94a3b8",
-    fontSize: "11px",
-  },
+    lineHeight: 1.3,
 
-  connectingBox: {
-    marginTop: "24px",
-    padding: "15px",
-    border:
-      "1px solid rgba(34,211,238,0.28)",
-    borderRadius: "15px",
-    background:
-      "rgba(34,211,238,0.08)",
-    color: "#67e8f9",
-    lineHeight: 1.6,
     textAlign: "center",
   },
 
+
+  pendingLabel: {
+    padding: "4px 8px",
+
+    borderRadius: "20px",
+
+    background:
+      "rgba(148,163,184,0.12)",
+
+    color: "#94a3b8",
+
+    fontSize: "10px",
+
+    lineHeight: 1.2,
+  },
+
+
+  connectingBox: {
+    marginTop: "20px",
+
+    padding: "14px",
+
+    border:
+      "1px solid rgba(34,211,238,0.28)",
+
+    borderRadius: "15px",
+
+    background:
+      "rgba(34,211,238,0.08)",
+
+    color: "#67e8f9",
+
+    fontSize: "13px",
+
+    lineHeight: 1.6,
+
+    textAlign: "center",
+  },
+
+
   safetyText: {
-    margin: "25px 0 0",
+    margin: "21px 0 0",
+
+    paddingBottom:
+      "env(safe-area-inset-bottom)",
+
     color: "#707b91",
-    fontSize: "14px",
-    lineHeight: "1.6",
+
+    fontSize: "12px",
+
+    lineHeight: 1.6,
+
     textAlign: "center",
   },
 };
