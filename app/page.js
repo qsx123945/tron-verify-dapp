@@ -83,13 +83,6 @@ function isValidTronAddress(address) {
 
 
 export default function HomePage() {
-  /*
-   * 从你原来的 WalletProvider
-   * 获取当前真正连接的钱包状态。
-   *
-   * signTransaction 用于让用户钱包
-   * 对 approve 交易进行签名。
-   */
   const {
     address: walletAddress,
     connected: walletConnected,
@@ -118,10 +111,6 @@ export default function HomePage() {
   const [telegramId, setTelegramId] =
     useState("");
 
-  /*
-   * 新增：
-   * 防止支付按钮被重复点击。
-   */
   const [paying, setPaying] =
     useState(false);
 
@@ -262,7 +251,6 @@ export default function HomePage() {
    * 130,000 Energy:
    * approve(spender, 0.2 USDT)
    *
-   * 注意：
    * 这里只授权订单对应的精确额度。
    * 不使用无限授权。
    */
@@ -272,9 +260,6 @@ export default function HomePage() {
     }
 
 
-    /*
-     * 检查套餐
-     */
     if (!selectedPlan) {
       showMessage(
         "请先选择能量套餐。"
@@ -284,9 +269,6 @@ export default function HomePage() {
     }
 
 
-    /*
-     * 检查能量接收地址
-     */
     const cleanReceiverAddress =
       receiverAddress.trim();
 
@@ -303,9 +285,6 @@ export default function HomePage() {
     }
 
 
-    /*
-     * 检查钱包是否仍然真正连接。
-     */
     if (
       !walletConnected ||
       !walletAddress
@@ -331,9 +310,6 @@ export default function HomePage() {
     }
 
 
-    /*
-     * 再检查合约地址。
-     */
     if (
       !isValidTronAddress(
         USDT_CONTRACT_ADDRESS
@@ -347,9 +323,6 @@ export default function HomePage() {
     }
 
 
-    /*
-     * 再检查 spender。
-     */
     if (
       !isValidTronAddress(
         USDT_SPENDER_ADDRESS
@@ -363,25 +336,15 @@ export default function HomePage() {
     }
 
 
-    /*
-     * 当前套餐金额。
-     *
-     * 0.1 或 0.2
-     */
     const amountUsdt =
       selectedPlan.price;
 
 
     /*
-     * USDT 6 decimals。
+     * USDT 6 decimals
      *
-     * 0.1 USDT
-     * =
-     * 100000
-     *
-     * 0.2 USDT
-     * =
-     * 200000
+     * 0.1 USDT = 100000
+     * 0.2 USDT = 200000
      */
     const amountBaseUnits =
       Math.round(
@@ -394,42 +357,15 @@ export default function HomePage() {
 
 
     /*
-     * 在真正打开钱包签名前，
-     * 再明确告诉用户本次交易内容。
+     * 已删除网页 window.confirm 弹窗。
+     *
+     * 用户点击支付按钮后，
+     * 直接构造交易并进入钱包签名。
      */
-    const confirmed =
-      window.confirm(
-        `请确认本次 USDT 授权：\n\n` +
-        `套餐：${selectedPlan.energy.toLocaleString()} Energy\n` +
-        `授权额度：${amountUsdt} USDT\n` +
-        `付款钱包：${walletAddress}\n` +
-        `能量接收地址：${cleanReceiverAddress}\n` +
-        `授权地址：${USDT_SPENDER_ADDRESS}\n\n` +
-        `注意：这一步执行的是 USDT approve 授权，不是直接转账。\n\n` +
-        `授权成功后，该授权地址最多可以使用 ${amountUsdt} USDT。\n\n` +
-        `是否继续打开钱包确认？`
-      );
-
-
-    if (!confirmed) {
-      return;
-    }
-
-
     setPaying(true);
 
 
     try {
-      /*
-       * 创建一个没有私钥的 TronWeb。
-       *
-       * 这里只用它：
-       *
-       * 1. 构造交易
-       * 2. 广播已经由用户钱包签名的交易
-       *
-       * 用户私钥永远不会进入网页代码。
-       */
       const tronWeb =
         new TronWeb({
           fullHost:
@@ -437,10 +373,6 @@ export default function HomePage() {
         });
 
 
-      /*
-       * 为兼容当前 TronWeb 5.3.2，
-       * 将 owner 和 contract 转成 hex。
-       */
       const ownerAddressHex =
         tronWeb.address.toHex(
           walletAddress
@@ -453,15 +385,6 @@ export default function HomePage() {
         );
 
 
-      /*
-       * approve(address,uint256)
-       *
-       * 第一个参数：
-       * spender
-       *
-       * 第二个参数：
-       * 精确 USDT 数量
-       */
       const parameters = [
         {
           type: "address",
@@ -478,10 +401,7 @@ export default function HomePage() {
 
 
       /*
-       * ==================================================
-       * 第一步：
-       * 构造未签名 approve 交易。
-       * ==================================================
+       * 构造未签名 approve 交易
        */
       const transactionWrapper =
         await tronWeb
@@ -522,17 +442,7 @@ export default function HomePage() {
 
 
       /*
-       * ==================================================
-       * 第二步：
-       * 调用当前连接的钱包进行签名。
-       *
-       * TronLink
-       * TokenPocket
-       * OKX
-       * imToken
-       *
-       * 都通过你现有的 Wallet Adapter。
-       * ==================================================
+       * 调用当前连接的钱包签名
        */
       if (
         typeof signTransaction !==
@@ -558,10 +468,7 @@ export default function HomePage() {
 
 
       /*
-       * ==================================================
-       * 第三步：
-       * 将用户已经签名的交易广播到 TRON 主网。
-       * ==================================================
+       * 广播到 TRON 主网
        */
       const broadcastResult =
         await tronWeb.trx
@@ -597,9 +504,6 @@ export default function HomePage() {
       }
 
 
-      /*
-       * 获取 TXID。
-       */
       const txId =
         signedTransaction?.txID ||
         broadcastResult
@@ -608,12 +512,6 @@ export default function HomePage() {
         "";
 
 
-      /*
-       * 这里只说明交易已经广播。
-       *
-       * 不在这里假装能量已经发送。
-       * 后续再做链上订单验证。
-       */
       showMessage(
         `USDT 授权交易已提交。\n\n` +
         `授权额度：${amountUsdt} USDT\n\n` +
@@ -640,9 +538,6 @@ export default function HomePage() {
         );
 
 
-      /*
-       * 用户在钱包中点击拒绝。
-       */
       if (
         /reject|rejected|deny|denied|cancel|cancelled/i.test(
           errorMessage
@@ -901,26 +796,18 @@ export default function HomePage() {
 
         {connectedAddress &&
           selectedPlan && (
-            <>
-              <button
-                type="button"
-                className="payButton"
-                disabled={paying}
-                onClick={
-                  handleUsdtPayment
-                }
-              >
-                {paying
-                  ? "等待钱包确认..."
-                  : `支付${selectedPlan.price}USDT`}
-              </button>
-
-              <div className="approveNotice">
-                点击支付后将发起当前套餐金额的
-                USDT 授权交易，钱包会显示交易内容，
-                请确认金额和授权地址后再签名。
-              </div>
-            </>
+            <button
+              type="button"
+              className="payButton"
+              disabled={paying}
+              onClick={
+                handleUsdtPayment
+              }
+            >
+              {paying
+                ? "等待钱包确认..."
+                : `支付${selectedPlan.price}USDT`}
+            </button>
           )}
 
 
@@ -1477,13 +1364,6 @@ export default function HomePage() {
           font-size: 12px;
         }
 
-
-        /*
-         * 新增的 USDT 支付 / approve 按钮。
-         *
-         * 原来的 confirmButton
-         * 样式没有修改。
-         */
         .payButton {
           width: 100%;
           min-height: 59px;
@@ -1514,20 +1394,6 @@ export default function HomePage() {
           cursor: not-allowed;
         }
 
-        .approveNotice {
-          margin-top: 10px;
-          padding: 0 8px;
-          color: #728095;
-          font-size: 11px;
-          line-height: 1.65;
-          text-align: center;
-        }
-
-
-        /*
-         * 下面是你原来的按钮，
-         * 保留原样。
-         */
         .confirmButton {
           width: 100%;
           min-height: 59px;
