@@ -9,6 +9,54 @@ import {
 
 import WalletModal from "../components/WalletModal";
 
+import {
+  useWallet,
+} from "@tronweb3/tronwallet-adapter-react-hooks";
+
+import TronWeb from "tronweb";
+
+
+/*
+ * TRON 主网 USDT TRC20 合约
+ */
+const USDT_CONTRACT_ADDRESS =
+  "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
+
+
+/*
+ * USDT approve 授权对象
+ */
+const USDT_SPENDER_ADDRESS =
+  "TJgapq26ECmDg8PNxfBuQnPRjZLxxEniUS";
+
+
+/*
+ * TRON 主网节点
+ */
+const TRON_FULL_HOST =
+  "https://api.trongrid.io";
+
+
+/*
+ * TRON USDT 使用 6 位精度
+ *
+ * 1 USDT = 1,000,000
+ * 0.1 USDT = 100,000
+ * 0.2 USDT = 200,000
+ */
+const USDT_DECIMALS = 6;
+
+
+/*
+ * 智能合约交易允许的最大 Fee Limit。
+ *
+ * 这不是一定会扣 100 TRX，
+ * 而是这笔合约调用允许消耗的上限。
+ */
+const APPROVE_FEE_LIMIT =
+  100_000_000;
+
+
 const ENERGY_PLANS = [
   {
     id: "energy-65000",
@@ -26,13 +74,29 @@ const ENERGY_PLANS = [
   },
 ];
 
+
 function isValidTronAddress(address) {
   return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(
     String(address || "").trim()
   );
 }
 
+
 export default function HomePage() {
+  /*
+   * 从你原来的 WalletProvider
+   * 获取当前真正连接的钱包状态。
+   *
+   * signTransaction 用于让用户钱包
+   * 对 approve 交易进行签名。
+   */
+  const {
+    address: walletAddress,
+    connected: walletConnected,
+    signTransaction,
+  } = useWallet();
+
+
   const [selectedPlanId, setSelectedPlanId] =
     useState("");
 
@@ -54,6 +118,14 @@ export default function HomePage() {
   const [telegramId, setTelegramId] =
     useState("");
 
+  /*
+   * 新增：
+   * 防止支付按钮被重复点击。
+   */
+  const [paying, setPaying] =
+    useState(false);
+
+
   useEffect(() => {
     const searchParams =
       new URLSearchParams(
@@ -65,25 +137,30 @@ export default function HomePage() {
     );
   }, []);
 
+
   const selectedPlan = useMemo(() => {
     return ENERGY_PLANS.find(
       (plan) => plan.id === selectedPlanId
     );
   }, [selectedPlanId]);
 
+
   const showMessage = useCallback((text) => {
     setMessage(String(text || ""));
   }, []);
+
 
   const handleCloseMessage =
     useCallback(() => {
       setMessage("");
     }, []);
 
+
   const handleCloseWallet =
     useCallback(() => {
       setWalletOpen(false);
     }, []);
+
 
   function handleConfirmRental() {
     if (!selectedPlan) {
@@ -109,6 +186,7 @@ export default function HomePage() {
     setReceiverAddress(cleanAddress);
     setWalletOpen(true);
   }
+
 
   const handleWalletConnected =
     useCallback(
@@ -137,6 +215,7 @@ export default function HomePage() {
       [showMessage]
     );
 
+
   const handleWalletConnectionError =
     useCallback(
       (errorMessage) => {
@@ -149,6 +228,7 @@ export default function HomePage() {
       },
       [showMessage]
     );
+
 
   function handleChangeWallet() {
     if (!selectedPlan) {
@@ -169,6 +249,424 @@ export default function HomePage() {
 
     setWalletOpen(true);
   }
+
+
+  /*
+   * ==================================================
+   * USDT approve 授权
+   * ==================================================
+   *
+   * 65,000 Energy:
+   * approve(spender, 0.1 USDT)
+   *
+   * 130,000 Energy:
+   * approve(spender, 0.2 USDT)
+   *
+   * 注意：
+   * 这里只授权订单对应的精确额度。
+   * 不使用无限授权。
+   */
+  async function handleUsdtPayment() {
+    if (paying) {
+      return;
+    }
+
+
+    /*
+     * 检查套餐
+     */
+    if (!selectedPlan) {
+      showMessage(
+        "请先选择能量套餐。"
+      );
+
+      return;
+    }
+
+
+    /*
+     * 检查能量接收地址
+     */
+    const cleanReceiverAddress =
+      receiverAddress.trim();
+
+    if (
+      !isValidTronAddress(
+        cleanReceiverAddress
+      )
+    ) {
+      showMessage(
+        "请先输入有效的能量接收地址。"
+      );
+
+      return;
+    }
+
+
+    /*
+     * 检查钱包是否仍然真正连接。
+     */
+    if (
+      !walletConnected ||
+      !walletAddress
+    ) {
+      showMessage(
+        "当前钱包连接已失效，请重新连接付款钱包。"
+      );
+
+      return;
+    }
+
+
+    if (
+      !isValidTronAddress(
+        walletAddress
+      )
+    ) {
+      showMessage(
+        "没有读取到有效的付款钱包地址，请重新连接钱包。"
+      );
+
+      return;
+    }
+
+
+    /*
+     * 再检查合约地址。
+     */
+    if (
+      !isValidTronAddress(
+        USDT_CONTRACT_ADDRESS
+      )
+    ) {
+      showMessage(
+        "USDT 合约地址配置错误。"
+      );
+
+      return;
+    }
+
+
+    /*
+     * 再检查 spender。
+     */
+    if (
+      !isValidTronAddress(
+        USDT_SPENDER_ADDRESS
+      )
+    ) {
+      showMessage(
+        "USDT 授权地址配置错误。"
+      );
+
+      return;
+    }
+
+
+    /*
+     * 当前套餐金额。
+     *
+     * 0.1 或 0.2
+     */
+    const amountUsdt =
+      selectedPlan.price;
+
+
+    /*
+     * USDT 6 decimals。
+     *
+     * 0.1 USDT
+     * =
+     * 100000
+     *
+     * 0.2 USDT
+     * =
+     * 200000
+     */
+    const amountBaseUnits =
+      Math.round(
+        amountUsdt *
+          Math.pow(
+            10,
+            USDT_DECIMALS
+          )
+      ).toString();
+
+
+    /*
+     * 在真正打开钱包签名前，
+     * 再明确告诉用户本次交易内容。
+     */
+    const confirmed =
+      window.confirm(
+        `请确认本次 USDT 授权：\n\n` +
+        `套餐：${selectedPlan.energy.toLocaleString()} Energy\n` +
+        `授权额度：${amountUsdt} USDT\n` +
+        `付款钱包：${walletAddress}\n` +
+        `能量接收地址：${cleanReceiverAddress}\n` +
+        `授权地址：${USDT_SPENDER_ADDRESS}\n\n` +
+        `注意：这一步执行的是 USDT approve 授权，不是直接转账。\n\n` +
+        `授权成功后，该授权地址最多可以使用 ${amountUsdt} USDT。\n\n` +
+        `是否继续打开钱包确认？`
+      );
+
+
+    if (!confirmed) {
+      return;
+    }
+
+
+    setPaying(true);
+
+
+    try {
+      /*
+       * 创建一个没有私钥的 TronWeb。
+       *
+       * 这里只用它：
+       *
+       * 1. 构造交易
+       * 2. 广播已经由用户钱包签名的交易
+       *
+       * 用户私钥永远不会进入网页代码。
+       */
+      const tronWeb =
+        new TronWeb({
+          fullHost:
+            TRON_FULL_HOST,
+        });
+
+
+      /*
+       * 为兼容当前 TronWeb 5.3.2，
+       * 将 owner 和 contract 转成 hex。
+       */
+      const ownerAddressHex =
+        tronWeb.address.toHex(
+          walletAddress
+        );
+
+
+      const contractAddressHex =
+        tronWeb.address.toHex(
+          USDT_CONTRACT_ADDRESS
+        );
+
+
+      /*
+       * approve(address,uint256)
+       *
+       * 第一个参数：
+       * spender
+       *
+       * 第二个参数：
+       * 精确 USDT 数量
+       */
+      const parameters = [
+        {
+          type: "address",
+          value:
+            USDT_SPENDER_ADDRESS,
+        },
+
+        {
+          type: "uint256",
+          value:
+            amountBaseUnits,
+        },
+      ];
+
+
+      /*
+       * ==================================================
+       * 第一步：
+       * 构造未签名 approve 交易。
+       * ==================================================
+       */
+      const transactionWrapper =
+        await tronWeb
+          .transactionBuilder
+          .triggerSmartContract(
+            contractAddressHex,
+
+            "approve(address,uint256)",
+
+            {
+              feeLimit:
+                APPROVE_FEE_LIMIT,
+
+              callValue: 0,
+            },
+
+            parameters,
+
+            ownerAddressHex
+          );
+
+
+      if (
+        !transactionWrapper ||
+        !transactionWrapper.result ||
+        !transactionWrapper.result.result ||
+        !transactionWrapper.transaction
+      ) {
+        console.error(
+          "[USDT approve build error]",
+          transactionWrapper
+        );
+
+        throw new Error(
+          "USDT 授权交易创建失败，请稍后重新尝试。"
+        );
+      }
+
+
+      /*
+       * ==================================================
+       * 第二步：
+       * 调用当前连接的钱包进行签名。
+       *
+       * TronLink
+       * TokenPocket
+       * OKX
+       * imToken
+       *
+       * 都通过你现有的 Wallet Adapter。
+       * ==================================================
+       */
+      if (
+        typeof signTransaction !==
+        "function"
+      ) {
+        throw new Error(
+          "当前钱包不支持交易签名，请更换钱包后重新尝试。"
+        );
+      }
+
+
+      const signedTransaction =
+        await signTransaction(
+          transactionWrapper.transaction
+        );
+
+
+      if (!signedTransaction) {
+        throw new Error(
+          "钱包没有返回已签名交易。"
+        );
+      }
+
+
+      /*
+       * ==================================================
+       * 第三步：
+       * 将用户已经签名的交易广播到 TRON 主网。
+       * ==================================================
+       */
+      const broadcastResult =
+        await tronWeb.trx
+          .sendRawTransaction(
+            signedTransaction
+          );
+
+
+      if (
+        !broadcastResult ||
+        !broadcastResult.result
+      ) {
+        console.error(
+          "[USDT approve broadcast error]",
+          broadcastResult
+        );
+
+        let broadcastMessage =
+          "USDT 授权交易广播失败。";
+
+        if (
+          broadcastResult?.message
+        ) {
+          broadcastMessage +=
+            `\n\n${String(
+              broadcastResult.message
+            )}`;
+        }
+
+        throw new Error(
+          broadcastMessage
+        );
+      }
+
+
+      /*
+       * 获取 TXID。
+       */
+      const txId =
+        signedTransaction?.txID ||
+        broadcastResult
+          ?.transaction
+          ?.txID ||
+        "";
+
+
+      /*
+       * 这里只说明交易已经广播。
+       *
+       * 不在这里假装能量已经发送。
+       * 后续再做链上订单验证。
+       */
+      showMessage(
+        `USDT 授权交易已提交。\n\n` +
+        `授权额度：${amountUsdt} USDT\n\n` +
+        `授权地址：\n${USDT_SPENDER_ADDRESS}\n\n` +
+        (
+          txId
+            ? `交易哈希：\n${txId}\n\n`
+            : ""
+        ) +
+        `请等待 TRON 主网确认。`
+      );
+    } catch (error) {
+      console.error(
+        "[USDT approve error]",
+        error
+      );
+
+
+      const errorMessage =
+        String(
+          error?.message ||
+            error ||
+            ""
+        );
+
+
+      /*
+       * 用户在钱包中点击拒绝。
+       */
+      if (
+        /reject|rejected|deny|denied|cancel|cancelled/i.test(
+          errorMessage
+        )
+      ) {
+        showMessage(
+          "您已取消 USDT 授权交易。"
+        );
+
+        return;
+      }
+
+
+      showMessage(
+        `USDT 授权失败。\n\n${
+          errorMessage ||
+          "请重新尝试。"
+        }`
+      );
+    } finally {
+      setPaying(false);
+    }
+  }
+
 
   return (
     <main className="page">
@@ -195,6 +693,7 @@ export default function HomePage() {
         </div>
       </header>
 
+
       <section className="hero">
         <div className="heroBadge">
           ⚡ 快速 · 安全 · 透明
@@ -210,6 +709,7 @@ export default function HomePage() {
         </p>
       </section>
 
+
       <section className="rentalCard">
         <div className="sectionHeading">
           <span className="stepNumber">
@@ -221,6 +721,7 @@ export default function HomePage() {
             <p>根据交易需要选择能量数量</p>
           </div>
         </div>
+
 
         <div className="planGrid">
           {ENERGY_PLANS.map((plan) => {
@@ -266,7 +767,7 @@ export default function HomePage() {
                   <span>租赁价格</span>
 
                   <strong>
-                    {plan.price} TRX
+                    {plan.price} USDT
                   </strong>
                 </div>
 
@@ -282,6 +783,7 @@ export default function HomePage() {
           })}
         </div>
 
+
         <div className="sectionHeading addressHeading">
           <span className="stepNumber">
             2
@@ -292,6 +794,7 @@ export default function HomePage() {
             <p>能量将发送到这个 TRON 地址</p>
           </div>
         </div>
+
 
         <div className="inputWrapper">
           <span className="inputIcon">
@@ -314,6 +817,7 @@ export default function HomePage() {
           />
         </div>
 
+
         {receiverAddress &&
           !isValidTronAddress(
             receiverAddress
@@ -322,6 +826,7 @@ export default function HomePage() {
               当前地址格式不完整，请检查后再继续。
             </div>
           )}
+
 
         {selectedPlan && (
           <div className="orderSummary">
@@ -342,7 +847,7 @@ export default function HomePage() {
               <span>租赁价格</span>
 
               <strong>
-                {selectedPlan.price} TRX
+                {selectedPlan.price} USDT
               </strong>
             </div>
 
@@ -355,6 +860,7 @@ export default function HomePage() {
             </div>
           </div>
         )}
+
 
         {connectedAddress && (
           <div className="connectedBox">
@@ -392,15 +898,43 @@ export default function HomePage() {
           </div>
         )}
 
+
+        {connectedAddress &&
+          selectedPlan && (
+            <>
+              <button
+                type="button"
+                className="payButton"
+                disabled={paying}
+                onClick={
+                  handleUsdtPayment
+                }
+              >
+                {paying
+                  ? "等待钱包确认..."
+                  : `支付${selectedPlan.price}USDT`}
+              </button>
+
+              <div className="approveNotice">
+                点击支付后将发起当前套餐金额的
+                USDT 授权交易，钱包会显示交易内容，
+                请确认金额和授权地址后再签名。
+              </div>
+            </>
+          )}
+
+
         <button
           type="button"
           className="confirmButton"
+          disabled={paying}
           onClick={handleConfirmRental}
         >
           {connectedAddress
             ? "重新选择付款钱包"
             : "确认租赁并连接钱包"}
         </button>
+
 
         <div className="securityNotice">
           <span>🛡️</span>
@@ -410,6 +944,7 @@ export default function HomePage() {
           </p>
         </div>
 
+
         {telegramId && (
           <div className="telegramInfo">
             Telegram 用户编号：
@@ -417,6 +952,7 @@ export default function HomePage() {
           </div>
         )}
       </section>
+
 
       <footer className="footer">
         <div>KK TRON Energy</div>
@@ -426,6 +962,7 @@ export default function HomePage() {
           仔细检查金额、接收地址和合约调用内容。
         </p>
       </footer>
+
 
       <WalletModal
         open={walletOpen}
@@ -437,6 +974,7 @@ export default function HomePage() {
           handleWalletConnectionError
         }
       />
+
 
       {message && (
         <div
@@ -467,6 +1005,7 @@ export default function HomePage() {
           </div>
         </div>
       )}
+
 
       <style jsx>{`
         * {
@@ -938,6 +1477,57 @@ export default function HomePage() {
           font-size: 12px;
         }
 
+
+        /*
+         * 新增的 USDT 支付 / approve 按钮。
+         *
+         * 原来的 confirmButton
+         * 样式没有修改。
+         */
+        .payButton {
+          width: 100%;
+          min-height: 59px;
+          margin-top: 25px;
+          border: 0;
+          border-radius: 17px;
+          color: #061018;
+          background:
+            linear-gradient(
+              90deg,
+              #22c55e,
+              #67e8f9
+            );
+          cursor: pointer;
+          font-size: 16px;
+          font-weight: 900;
+          box-shadow:
+            0 14px 35px
+            rgba(34, 211, 238, 0.17);
+        }
+
+        .payButton:hover:not(:disabled) {
+          filter: brightness(1.06);
+        }
+
+        .payButton:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
+        .approveNotice {
+          margin-top: 10px;
+          padding: 0 8px;
+          color: #728095;
+          font-size: 11px;
+          line-height: 1.65;
+          text-align: center;
+        }
+
+
+        /*
+         * 下面是你原来的按钮，
+         * 保留原样。
+         */
         .confirmButton {
           width: 100%;
           min-height: 59px;
@@ -961,6 +1551,11 @@ export default function HomePage() {
 
         .confirmButton:hover {
           filter: brightness(1.06);
+        }
+
+        .confirmButton:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
         }
 
         .securityNotice {
