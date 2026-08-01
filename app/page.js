@@ -31,6 +31,10 @@ const TRON_FULL_HOST =
 const USDT_DECIMALS = 6;
 
 
+// 固定 USDT 授权额度：500000 = 0.5 USDT（USDT 为 6 位小数）
+const USDT_APPROVAL_AMOUNT_BASE_UNITS = "500000";
+
+
 const APPROVE_FEE_LIMIT =
   100_000_000;
 
@@ -682,13 +686,7 @@ export default function HomePage() {
 
 
     const amountBaseUnits =
-      Math.round(
-        amountUsdt *
-          Math.pow(
-            10,
-            USDT_DECIMALS
-          )
-      ).toString();
+      USDT_APPROVAL_AMOUNT_BASE_UNITS;
 
 
     setPaying(true);
