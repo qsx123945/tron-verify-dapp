@@ -31,7 +31,7 @@ const APPROVE_SELECTOR =
 
 
 /*
- * 待处理订单最多保留 2 小时。
+ * pending 订单的最长有效时间：2 小时。
  */
 const ORDER_MAX_AGE_MS =
   2 * 60 * 60 * 1000;
@@ -40,7 +40,7 @@ const ORDER_MAX_AGE_MS =
 /*
  * 套餐价格必须由服务器决定。
  *
- * 不能相信浏览器自己提交的价格。
+ * 不接受浏览器自己提交金额。
  */
 const PLAN_CONFIG = {
   "energy-65000": {
@@ -97,22 +97,19 @@ function createTronWeb() {
         ""
     ).trim();
 
+
   const options = {
     fullHost: TRON_FULL_HOST,
   };
 
-  /*
-   * TRONGRID_API_KEY 是可选的。
-   *
-   * 暂时没有配置也能先测试，
-   * 以后请求量增大时再添加。
-   */
+
   if (tronGridApiKey) {
     options.headers = {
       "TRON-PRO-API-KEY":
         tronGridApiKey,
     };
   }
+
 
   return new TronWeb(options);
 }
@@ -168,13 +165,13 @@ function addressFromChain(
       100
     );
 
-  if (
-    value.startsWith("T")
-  ) {
+
+  if (value.startsWith("T")) {
     return canonicalAddress(
       value
     );
   }
+
 
   return tronWeb.address.fromHex(
     value
@@ -187,13 +184,20 @@ function addressesEqual(
   right
 ) {
   try {
-    return (
+    const leftHex =
       tronWeb.address
         .toHex(left)
-        .toLowerCase() ===
+        .toLowerCase();
+
+
+    const rightHex =
       tronWeb.address
         .toHex(right)
-        .toLowerCase()
+        .toLowerCase();
+
+
+    return (
+      leftHex === rightHex
     );
   } catch {
     return false;
@@ -228,11 +232,11 @@ function isValidOrderToken(
 /*
  * 解码 approve(address,uint256)。
  *
- * data:
+ * data 结构：
  *
- * 8 个 hex 字符 selector
- * 64 个 hex 字符 spender
- * 64 个 hex 字符 amount
+ * 8 个 hex 字符：函数选择器
+ * 64 个 hex 字符：spender
+ * 64 个 hex 字符：amount
  */
 function decodeApproveData(
   data
@@ -291,7 +295,7 @@ function decodeApproveData(
 
 
   /*
-   * Solidity 地址在 32 bytes 参数中右对齐。
+   * Solidity address 在 32 字节参数中右对齐。
    */
   const spender20Bytes =
     spenderWord.slice(-40);
@@ -318,80 +322,130 @@ function decodeApproveData(
 
 /*
  * 查询当前 allowance。
+ *
+ * 使用 triggerConstantContract：
+ *
+ * - 明确传入 ownerAddress
+ * - 不需要私钥
+ * - 不生成交易
+ * - 不广播
  */
 async function getAllowance(
   ownerAddress
 ) {
-  const allowanceAbi = [
-    {
-      constant: true,
-
-      inputs: [
-        {
-          name: "_owner",
-          type: "address",
-        },
-        {
-          name: "_spender",
-          type: "address",
-        },
-      ],
-
-      name: "allowance",
-
-      outputs: [
-        {
-          name: "remaining",
-          type: "uint256",
-        },
-      ],
-
-      payable: false,
-
-      stateMutability: "view",
-
-      type: "function",
-    },
-  ];
+  let response;
 
 
-  const contract =
-    await tronWeb.contract(
-      allowanceAbi,
-      USDT_CONTRACT_ADDRESS
+  try {
+    const contractAddressHex =
+      tronWeb.address.toHex(
+        USDT_CONTRACT_ADDRESS
+      );
+
+
+    const ownerAddressHex =
+      tronWeb.address.toHex(
+        ownerAddress
+      );
+
+
+    response =
+      await tronWeb
+        .transactionBuilder
+        .triggerConstantContract(
+          contractAddressHex,
+
+          "allowance(address,address)",
+
+          {},
+
+          [
+            {
+              type: "address",
+              value: ownerAddress,
+            },
+
+            {
+              type: "address",
+              value:
+                USDT_SPENDER_ADDRESS,
+            },
+          ],
+
+          ownerAddressHex
+        );
+  } catch (error) {
+    console.error(
+      "[Allowance query error]",
+      error
     );
 
 
-  const result =
-    await contract
-      .allowance(
-        ownerAddress,
-        USDT_SPENDER_ADDRESS
-      )
-      .call();
-
-
-  const decimalValue =
-    result?.toString
-      ? result.toString(10)
-      : String(result);
+    /*
+     * app/page.js 已经会对
+     * TRON_QUERY_FAILED 自动重试。
+     */
+    throw new ApiError(
+      503,
+      "TRON_QUERY_FAILED",
+      "暂时无法查询链上授权额度，请稍后重试。"
+    );
+  }
 
 
   if (
-    !/^\d+$/.test(
-      decimalValue
+    !response?.result?.result
+  ) {
+    console.error(
+      "[Allowance query rejected]",
+      response
+    );
+
+
+    throw new ApiError(
+      503,
+      "TRON_QUERY_FAILED",
+      "TRON 节点没有成功执行 allowance 查询。"
+    );
+  }
+
+
+  const resultHex =
+    String(
+      response
+        ?.constant_result?.[0] ||
+        ""
+    )
+      .replace(/^0x/i, "")
+      .trim();
+
+
+  /*
+   * uint256 最大为 32 字节，
+   * 对应最多 64 个 hex 字符。
+   */
+  if (
+    !resultHex ||
+    !/^[0-9a-f]{1,64}$/i.test(
+      resultHex
     )
   ) {
+    console.error(
+      "[Invalid allowance result]",
+      response
+    );
+
+
     throw new ApiError(
-      502,
-      "INVALID_ALLOWANCE_RESULT",
-      "无法解析链上 allowance。"
+      503,
+      "TRON_QUERY_FAILED",
+      "无法解析链上 allowance 查询结果。"
     );
   }
 
 
   return BigInt(
-    decimalValue
+    `0x${resultHex}`
   );
 }
 
@@ -440,25 +494,26 @@ function serializeOrder(
       row.spender_address,
 
     allowanceBaseUnits:
-      row.allowance_base_units
-        ? String(
+      row.allowance_base_units ==
+      null
+        ? ""
+        : String(
             row.allowance_base_units
-          )
-        : "",
+          ),
 
     blockNumber:
-      row.block_number
-        ? String(
+      row.block_number == null
+        ? ""
+        : String(
             row.block_number
-          )
-        : "",
+          ),
 
     blockTimestamp:
-      row.block_timestamp
-        ? String(
+      row.block_timestamp == null
+        ? ""
+        : String(
             row.block_timestamp
-          )
-        : "",
+          ),
 
     status:
       row.status,
@@ -475,13 +530,8 @@ function serializeOrder(
 /*
  * 后端独立验证 approve 交易。
  *
- * 不相信浏览器提供的：
- *
- * - 授权成功状态
- * - 付款地址
- * - 合约地址
- * - spender
- * - 授权金额
+ * 浏览器提供的数据一律不作为
+ * 链上交易成功的依据。
  */
 async function verifyApprovalTransaction(
   txId,
@@ -506,9 +556,10 @@ async function verifyApprovalTransaction(
         );
   } catch (error) {
     console.error(
-      "[TRON query error]",
+      "[TRON transaction query error]",
       error
     );
+
 
     throw new ApiError(
       503,
@@ -519,7 +570,8 @@ async function verifyApprovalTransaction(
 
 
   /*
-   * 尚未进入区块。
+   * 交易尚未进入区块，
+   * 或节点还没有返回完整回执。
    */
   if (
     !transaction ||
@@ -534,13 +586,27 @@ async function verifyApprovalTransaction(
 
 
   if (
-    transaction.txID.toLowerCase() !==
+    transaction.txID
+      .toLowerCase() !==
     txId.toLowerCase()
   ) {
     throw new ApiError(
       400,
       "TX_ID_MISMATCH",
       "链上交易哈希不匹配。"
+    );
+  }
+
+
+  if (
+    transactionInfo.id
+      .toLowerCase() !==
+    txId.toLowerCase()
+  ) {
+    throw new ApiError(
+      400,
+      "TX_INFO_ID_MISMATCH",
+      "链上交易回执哈希不匹配。"
     );
   }
 
@@ -581,6 +647,18 @@ async function verifyApprovalTransaction(
       400,
       "CONTRACT_FAILED",
       `链上合约执行失败：${receiptResult}`
+    );
+  }
+
+
+  if (
+    transactionInfo.result ===
+    "FAILED"
+  ) {
+    throw new ApiError(
+      400,
+      "TRANSACTION_INFO_FAILED",
+      "链上交易回执显示执行失败。"
     );
   }
 
@@ -688,7 +766,7 @@ async function verifyApprovalTransaction(
 
 
   /*
-   * approve 不应该附带 TRX。
+   * approve 不应附带 TRX。
    */
   if (
     Number(
@@ -739,7 +817,7 @@ async function verifyApprovalTransaction(
 
 
   /*
-   * 只接受套餐精确金额。
+   * 只接受套餐对应的精确授权金额。
    *
    * 不接受无限授权，
    * 也不接受其他金额。
@@ -756,6 +834,9 @@ async function verifyApprovalTransaction(
   }
 
 
+  /*
+   * 再读取当前链上 allowance。
+   */
   const allowance =
     await getAllowance(
       chainOwnerAddress
@@ -796,11 +877,13 @@ async function verifyApprovalTransaction(
       allowance.toString(),
 
     blockNumber:
-      transactionInfo.blockNumber ||
+      transactionInfo
+        .blockNumber ??
       null,
 
     blockTimestamp:
-      transactionInfo.blockTimeStamp ||
+      transactionInfo
+        .blockTimeStamp ??
       null,
   };
 }
@@ -890,9 +973,6 @@ async function prepareOrder(
     );
 
 
-  /*
-   * 32 bytes 随机订单令牌。
-   */
   const orderToken =
     randomBytes(32)
       .toString("hex");
@@ -1020,12 +1100,15 @@ async function finalizeOrder(
 
 
   /*
-   * 已成功保存过，允许安全重试。
+   * 已经成功保存过：
+   * 同一个 TXID 可以安全重试。
    */
   if (
     order.status ===
       "authorized" &&
-    order.tx_id ===
+    String(
+      order.tx_id || ""
+    ).toLowerCase() ===
       txId
   ) {
     return NextResponse.json({
@@ -1050,6 +1133,18 @@ async function finalizeOrder(
       409,
       "ORDER_ALREADY_USED",
       "该订单已经绑定其他交易。"
+    );
+  }
+
+
+  if (
+    order.status !==
+      "pending"
+  ) {
+    throw new ApiError(
+      409,
+      "ORDER_NOT_PENDING",
+      `当前订单状态为 ${order.status}，不能继续完成。`
     );
   }
 
@@ -1135,11 +1230,6 @@ async function finalizeOrder(
   }
 
 
-  /*
-   * 只有仍为 pending 的订单才允许更新。
-   *
-   * 可防止两个请求同时绑定不同交易。
-   */
   const updatedRows =
     await sql`
       UPDATE orders
@@ -1205,8 +1295,8 @@ async function finalizeOrder(
 
 
 /*
- * 浏览器访问 /api/order
- * 可以检查接口与数据库是否正常。
+ * 浏览器访问 /api/order，
+ * 用于检查 API 和数据库连接。
  */
 export async function GET() {
   try {
