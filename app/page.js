@@ -2202,4 +2202,6 @@ export default function HomePage() {
           margin-top: 24px;
           border: 0;
           border-radius: 14px;
-          color: #
+          color: #071018;
+          background: #67e8f9;
+          font-weight: 800;
