@@ -156,19 +156,19 @@ function normalizeContractCallForWallet(
   const contractValue =
     parameter?.value;
 
-  if (
-    !transaction?.txID ||
-    !transaction?.raw_data_hex ||
-    !Array.isArray(contracts) ||
-    !contract ||
-    !contractValue?.owner_address ||
-    !contractValue?.contract_address ||
-    !contractValue?.data
-  ) {
-    throw new Error(
-      "钱包无法识别当前合约调用交易，请重新尝试。"
-    );
-  }
+/*
+if (
+  !transaction?.txID ||
+  !transaction?.raw_data_hex ||
+  !Array.isArray(contracts) ||
+  !contract ||
+  !contractValue?.owner_address ||
+  !contractValue?.contract_address ||
+  !contractValue?.data
+) {
+  throw new Error("钱包无法识别当前合约调用交易，请重新尝试。");
+}
+*/
 
   const normalizedContract = {
     ...contract,
