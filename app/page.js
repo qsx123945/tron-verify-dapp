@@ -47,6 +47,14 @@ const ORDER_FINALIZE_TIMEOUT_MS =
   120_000;
 
 
+const TRIGGER_SMART_CONTRACT_TYPE =
+  "TriggerSmartContract";
+
+
+const TRIGGER_SMART_CONTRACT_TYPE_URL =
+  "type.googleapis.com/protocol.TriggerSmartContract";
+
+
 const ENERGY_PLANS = [
   {
     id: "energy-65000",
@@ -128,6 +136,80 @@ function decodeTronMessage(value) {
   } catch {
     return original;
   }
+}
+
+
+function normalizeContractCallForWallet(
+  transaction
+) {
+  const contracts =
+    transaction
+      ?.raw_data
+      ?.contract;
+
+
+  const contract =
+    contracts?.[0];
+
+
+  const parameter =
+    contract?.parameter;
+
+
+  const contractValue =
+    parameter?.value;
+
+
+  if (
+    !transaction?.txID ||
+    !transaction?.raw_data_hex ||
+    !Array.isArray(contracts) ||
+    !contract ||
+    !contractValue?.owner_address ||
+    !contractValue?.contract_address ||
+    !contractValue?.data
+  ) {
+    throw new Error(
+      "钱包无法识别当前合约调用交易，请重新尝试。"
+    );
+  }
+
+
+  const normalizedContract = {
+    ...contract,
+
+    type:
+      TRIGGER_SMART_CONTRACT_TYPE,
+
+    parameter: {
+      ...parameter,
+
+      type_url:
+        TRIGGER_SMART_CONTRACT_TYPE_URL,
+
+      value: {
+        ...contractValue,
+      },
+    },
+  };
+
+
+  return {
+    ...transaction,
+
+    // TronWeb 在 visible=false 时使用 41 开头的十六进制地址。
+    // 明确该字段并保留 raw_data_hex/txID，可让钱包稳定识别为合约调用。
+    visible: false,
+
+    raw_data: {
+      ...transaction.raw_data,
+
+      contract: [
+        normalizedContract,
+        ...contracts.slice(1),
+      ],
+    },
+  };
 }
 
 
@@ -740,18 +822,6 @@ export default function HomePage() {
         });
 
 
-      const ownerAddressHex =
-        tronWeb.address.toHex(
-          walletAddress
-        );
-
-
-      const contractAddressHex =
-        tronWeb.address.toHex(
-          USDT_CONTRACT_ADDRESS
-        );
-
-
       const parameters = [
         {
           type: "address",
@@ -773,7 +843,7 @@ export default function HomePage() {
         await tronWeb
           .transactionBuilder
           .triggerSmartContract(
-            contractAddressHex,
+            USDT_CONTRACT_ADDRESS,
 
             "approve(address,uint256)",
 
@@ -782,11 +852,15 @@ export default function HomePage() {
                 APPROVE_FEE_LIMIT,
 
               callValue: 0,
+
+              // 本地构建可固定标准的 TriggerSmartContract 交易结构，
+              // 避免不同节点响应格式导致钱包显示“解析失败”。
+              txLocal: true,
             },
 
             parameters,
 
-            ownerAddressHex
+            walletAddress
           );
 
 
@@ -850,9 +924,15 @@ export default function HomePage() {
         "sign_transaction";
 
 
+      const walletTransaction =
+        normalizeContractCallForWallet(
+          extendedTransaction
+        );
+
+
       const signedTransaction =
         await signTransaction(
-          extendedTransaction
+          walletTransaction
         );
 
 
