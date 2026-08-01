@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "@neondatabase/serverless": "1.1.0",
     "@tronweb3/tronwallet-abstract-adapter": "latest",
     "@tronweb3/tronwallet-adapter-react-hooks": "latest",
     "@tronweb3/tronwallet-adapters": "latest",
