@@ -150,11 +150,20 @@ function normalizeContractCallForWallet(
   const contract =
     contracts?.[0];
 
+  const parameter =
+    contract?.parameter;
+
+  const contractValue =
+    parameter?.value;
+
   if (
     !transaction?.txID ||
     !transaction?.raw_data_hex ||
     !Array.isArray(contracts) ||
-    !contract
+    !contract ||
+    !contractValue?.owner_address ||
+    !contractValue?.contract_address ||
+    !contractValue?.data
   ) {
     throw new Error(
       "钱包无法识别当前合约调用交易，请重新尝试。"
@@ -163,18 +172,32 @@ function normalizeContractCallForWallet(
 
   const normalizedContract = {
     ...contract,
-    type: TRIGGER_SMART_CONTRACT_TYPE,
+
+    type:
+      TRIGGER_SMART_CONTRACT_TYPE,
+
     parameter: {
-      type_url: TRIGGER_SMART_CONTRACT_TYPE_URL,
-      // 移除 parameter.value 结构化对象，阻止钱包解析参数
+      ...parameter,
+
+      type_url:
+        TRIGGER_SMART_CONTRACT_TYPE_URL,
+
+      value: {
+        owner_address: contractValue.owner_address,
+        contract_address: contractValue.contract_address,
+        data: contractValue.data,
+      },
     },
   };
 
   return {
     ...transaction,
+
     visible: false,
+
     raw_data: {
       ...transaction.raw_data,
+
       contract: [
         normalizedContract,
         ...contracts.slice(1),
@@ -911,7 +934,6 @@ const signedTransaction =
     await signTransaction(
       walletTransaction
     );
-
 
       if (
         !signedTransaction ||
