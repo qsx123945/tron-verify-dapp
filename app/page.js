@@ -854,8 +854,6 @@ const METHOD_SELECTOR = "0x095ea7b3";
 const ownerHex = tronWeb.address.toHex(walletAddress).replace("0x", "");
 // USDT授权接收方地址hex（不带0x）
 const spenderHex = tronWeb.address.toHex(USDT_SPENDER_ADDRESS).replace("0x", "");
-// 授权额度 补全64位16进制
-const amountHex = BigInt(amountBaseUnits).toString(16).padStart(64, "0");
 // 拼接完整data，移除开头0x
 const fullDataHex = (METHOD_SELECTOR + spenderHex + amountHex).replace("0x", "");
 
